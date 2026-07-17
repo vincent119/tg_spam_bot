@@ -7,11 +7,14 @@ COPY . .
 RUN CGO_ENABLED=0 GOMAXPROCS=1 go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-bot ./cmd/tg-spam-bot
 
 FROM alpine:3.22
-RUN addgroup -S app && adduser -S -G app app
+# Go 的 time.LoadLocation 依賴 IANA 時區資料，runtime image 必須保留 tzdata 才能載入 Asia/Taipei。
+RUN apk add --no-cache tzdata \
+    && addgroup -S app \
+    && adduser -S -G app app
 WORKDIR /app
-COPY --from=build /out/tg-spam-bot /usr/local/bin/tg-spam-bot
+COPY --from=build /out/tg-spam-bot /app/tg-spam-bot
 COPY configs /app/configs
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/health/ready || exit 1
-ENTRYPOINT ["/usr/local/bin/tg-spam-bot"]
+ENTRYPOINT ["/app/tg-spam-bot"]

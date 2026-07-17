@@ -46,6 +46,11 @@ services:
         condition: service_healthy
     ports:
       - "9222:9222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9222/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
     volumes:
       - ./configs/config.yaml:/app/configs/config.yaml:ro
       - ./configs/rules:/app/configs/rules:ro
