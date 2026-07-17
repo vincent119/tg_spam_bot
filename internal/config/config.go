@@ -192,6 +192,8 @@ func setDefaults(v *viper.Viper) {
 }
 
 func envBindings() map[string]string {
+	// 這些是環境變數名稱而非憑證內容，實際秘密值只在執行階段注入。
+	//nolint:gosec
 	return map[string]string{
 		"app.addr": "HTTP_ADDR", "app.port": "APP_PORT", "app.env": "APP_ENV", "app.mode": "APP_MODE",
 		"app.business_timezone": "BUSINESS_TIMEZONE", "app.read_timeout": "READ_TIMEOUT", "app.write_timeout": "WRITE_TIMEOUT",

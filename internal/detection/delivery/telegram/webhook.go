@@ -9,15 +9,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
+	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
-const secretHeader = "X-Telegram-Bot-Api-Secret-Token"
+const secretHeader = "X-Telegram-Bot-Api-Secret-Token" //nolint:gosec // 這是 Telegram 公開 Header 名稱，不是秘密值。
 
 // MessageProcessor 定義 Webhook 解析完成後的 application 邊界。
 type MessageProcessor interface {
 	Process(ctx context.Context, message domain.Message) error
+}
+
+// CommandProcessor 定義指令解析完成後的 application 邊界。
+type CommandProcessor interface {
+	Handle(ctx context.Context, command commanddomain.Command) error
 }
 
 // Webhook 驗證 Telegram secret、限制 body 並轉換 Update。
@@ -25,7 +32,21 @@ type Webhook struct {
 	secret         [sha256.Size]byte
 	maxBody        int64
 	process        MessageProcessor
+	commands       CommandProcessor
+	botUsername    string
 	allowedChatIDs map[int64]struct{}
+}
+
+// WithCommandProcessor 在一般垃圾訊息偵測前分流 Telegram bot command。
+func WithCommandProcessor(processor CommandProcessor, botUsername string) Option {
+	return func(webhook *Webhook) error {
+		if processor == nil || strings.TrimSpace(botUsername) == "" {
+			return errors.New("command processor and bot username are required")
+		}
+		webhook.commands = processor
+		webhook.botUsername = strings.TrimPrefix(strings.TrimSpace(botUsername), "@")
+		return nil
+	}
 }
 
 // Option 調整 Webhook 的安全接收範圍。
@@ -96,16 +117,35 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid update", http.StatusBadRequest)
 		return
 	}
-	message, ok := update.DomainMessage()
-	if !ok {
+	if update.Message == nil || !update.Message.Chat.isModeratedGroup() {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if len(h.allowedChatIDs) > 0 {
-		if _, allowed := h.allowedChatIDs[message.ChatID]; !allowed {
+		if _, allowed := h.allowedChatIDs[update.Message.Chat.ID]; !allowed {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+	}
+	if h.commands != nil {
+		command, disposition := update.Command(h.botUsername)
+		switch disposition {
+		case CommandHandle:
+			if err := h.commands.Handle(r.Context(), command); err != nil {
+				http.Error(w, "temporary command failure", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case CommandIgnore:
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	message, ok := update.DomainMessage()
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 	if err := h.process.Process(r.Context(), message); err != nil {
 		http.Error(w, "temporary processing failure", http.StatusServiceUnavailable)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,10 +20,16 @@ type Client struct {
 	http    *http.Client
 }
 
+// BotIdentity 保存 getMe 回傳且可安全用於指令比對的 Bot 身分。
+type BotIdentity struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
 // NewClient 建立重用 Transport 且具有整體逾時的 Telegram Client。
 func NewClient(baseURL, token string, client *http.Client) (*Client, error) {
 	if token == "" {
-		return nil, fmt.Errorf("telegram token is required")
+		return nil, errors.New("telegram token 不得為空")
 	}
 	if client == nil {
 		client = &http.Client{Transport: &http.Transport{MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}, Timeout: 15 * time.Second}
@@ -40,15 +47,66 @@ func (c *Client) SendWarning(ctx context.Context, chatID, userID int64, text str
 	return c.call(ctx, "sendMessage", map[string]any{"chat_id": chatID, "text": fmt.Sprintf("使用者 %d：%s", userID, text)})
 }
 
+// SendMessage 回覆觸發指令的訊息，讓群組管理員能對應操作結果。
+func (c *Client) SendMessage(ctx context.Context, chatID, replyToMessageID int64, text string) error {
+	payload := map[string]any{"chat_id": chatID, "text": text}
+	if replyToMessageID != 0 {
+		payload["reply_parameters"] = map[string]any{"message_id": replyToMessageID, "allow_sending_without_reply": true}
+	}
+	return c.call(ctx, "sendMessage", payload)
+}
+
 // RestrictMember 將成員限制至指定 UTC 時間。
 func (c *Client) RestrictMember(ctx context.Context, chatID, userID int64, until time.Time) error {
 	permissions := map[string]bool{"can_send_messages": false}
 	return c.call(ctx, "restrictChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "permissions": permissions, "until_date": until.Unix()})
 }
 
+// UnrestrictMember 恢復 Telegram 一般成員常用權限。
+func (c *Client) UnrestrictMember(ctx context.Context, chatID, userID int64) error {
+	var chat struct {
+		Permissions map[string]bool `json:"permissions"`
+	}
+	if err := c.callResult(ctx, "getChat", map[string]any{"chat_id": chatID}, &chat); err != nil {
+		return err
+	}
+	if chat.Permissions == nil {
+		chat.Permissions = map[string]bool{"can_send_messages": true}
+	}
+	return c.call(ctx, "restrictChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "permissions": chat.Permissions})
+}
+
 // BanMember 封鎖符合嚴重規則或達到第四階梯的成員。
 func (c *Client) BanMember(ctx context.Context, chatID, userID int64) error {
 	return c.call(ctx, "banChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "revoke_messages": true})
+}
+
+// UnbanMember 解除封鎖但不要求使用者立即重新加入群組。
+func (c *Client) UnbanMember(ctx context.Context, chatID, userID int64) error {
+	return c.call(ctx, "unbanChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "only_if_banned": true})
+}
+
+// GetMe 取得 Bot ID 與 username，供啟動驗證及群組指令 suffix 比對。
+func (c *Client) GetMe(ctx context.Context) (BotIdentity, error) {
+	var identity BotIdentity
+	if err := c.callResult(ctx, "getMe", map[string]any{}, &identity); err != nil {
+		return BotIdentity{}, err
+	}
+	if identity.ID <= 0 || strings.TrimSpace(identity.Username) == "" {
+		return BotIdentity{}, errors.New("telegram getMe 缺少 Bot ID 或 username")
+	}
+	return identity, nil
+}
+
+// IsAdmin 即時查詢成員狀態，避免沿用已撤銷權限的快取。
+func (c *Client) IsAdmin(ctx context.Context, chatID, userID int64) (bool, error) {
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := c.callResult(ctx, "getChatMember", map[string]any{"chat_id": chatID, "user_id": userID}, &result); err != nil {
+		return false, err
+	}
+	return result.Status == "creator" || result.Status == "administrator", nil
 }
 
 // AdminIDs 取得管理員識別碼供偵測前豁免使用。
@@ -84,7 +142,7 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram %s: %w", method, err)
+		return fmt.Errorf("telegram %s：%w", method, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	limited, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -101,7 +159,7 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 		return fmt.Errorf("decode telegram %s response with status %d", method, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.OK {
-		return fmt.Errorf("telegram %s failed: code=%d description=%s", method, result.ErrorCode, result.Description)
+		return fmt.Errorf("telegram %s 失敗：code=%d description=%s", method, result.ErrorCode, c.mask(result.Description))
 	}
 	if target != nil {
 		if err := json.Unmarshal(result.Result, target); err != nil {
@@ -109,4 +167,11 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 		}
 	}
 	return nil
+}
+
+func (c *Client) mask(value string) string {
+	if c.token == "" {
+		return value
+	}
+	return strings.ReplaceAll(value, c.token, "[已遮蔽]")
 }

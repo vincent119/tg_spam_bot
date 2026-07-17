@@ -65,14 +65,17 @@ func TestProcessorReturnsPartialActionFailure(t *testing.T) {
 		t.Fatal("expected action failure")
 	}
 }
+
 func (s *telegramSpy) SendWarning(context.Context, int64, int64, string) error {
 	s.actions = append(s.actions, "warn")
 	return nil
 }
+
 func (s *telegramSpy) RestrictMember(context.Context, int64, int64, time.Time) error {
 	s.actions = append(s.actions, "restrict")
 	return nil
 }
+
 func (s *telegramSpy) BanMember(context.Context, int64, int64) error {
 	s.actions = append(s.actions, "ban")
 	return nil

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/application"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 	"gorm.io/driver/postgres"
@@ -34,6 +35,7 @@ func TestStoreIntegration(t *testing.T) {
 		_ = cleanup.Where("event_id LIKE ?", fmt.Sprintf("it-%d-%%", seed)).Delete(&enforcementAction{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&violation{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&detectionEvent{}).Error
+		_ = cleanup.Where("chat_id = ?", chatID).Delete(&commandExecution{}).Error
 	})
 
 	for i := 1; i <= 4; i++ {
@@ -51,5 +53,25 @@ func TestStoreIntegration(t *testing.T) {
 		if count != i || len(actions) != 2 {
 			t.Fatalf("count = %d actions = %v", count, actions)
 		}
+	}
+	target := commanddomain.User{ID: userID}
+	command, err := commanddomain.NewCommand(commanddomain.Command{UpdateID: seed + 100, ChatID: chatID, MessageID: 100, Actor: commanddomain.User{ID: seed + 2}, Target: &target, TargetMessage: 1, Name: commanddomain.NameWarn, Args: "人工測試"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimCommand(ctx, command)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimCommand() = %v, %v", claimed, err)
+	}
+	if _, err := store.AddManualWarning(ctx, command, "人工測試", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := store.Warnings(ctx, chatID, userID, time.Now().Add(-30*24*time.Hour))
+	if err != nil || summary.Total != 5 || summary.Manual != 1 || summary.Automatic != 4 {
+		t.Fatalf("Warnings() = %+v, %v", summary, err)
+	}
+	cleared, err := store.ClearWarnings(ctx, command, "清除測試", time.Now().UTC())
+	if err != nil || cleared != 5 {
+		t.Fatalf("ClearWarnings() = %d, %v", cleared, err)
 	}
 }

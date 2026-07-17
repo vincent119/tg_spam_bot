@@ -24,14 +24,17 @@ func (r *telegramRecorder) DeleteMessage(context.Context, int64, int64) error {
 	r.actions = append(r.actions, "delete")
 	return nil
 }
+
 func (r *telegramRecorder) SendWarning(context.Context, int64, int64, string) error {
 	r.actions = append(r.actions, "warn")
 	return nil
 }
+
 func (r *telegramRecorder) RestrictMember(context.Context, int64, int64, time.Time) error {
 	r.actions = append(r.actions, "restrict")
 	return nil
 }
+
 func (r *telegramRecorder) BanMember(context.Context, int64, int64) error {
 	r.actions = append(r.actions, "ban")
 	return nil

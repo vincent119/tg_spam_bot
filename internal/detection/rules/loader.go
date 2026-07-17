@@ -32,7 +32,7 @@ func LoadDir(dir string) (domain.RuleSet, error) {
 
 	var merged domain.RuleSet
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // path 由已驗證的規則目錄與 ReadDir entry 組成。
 		if err != nil {
 			return domain.RuleSet{}, fmt.Errorf("read rule file %s: %w", path, err)
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
@@ -14,6 +15,12 @@ type processorFunc func(context.Context, domain.Message) error
 
 func (f processorFunc) Process(ctx context.Context, message domain.Message) error {
 	return f(ctx, message)
+}
+
+type commandProcessorFunc func(context.Context, commanddomain.Command) error
+
+func (f commandProcessorFunc) Handle(ctx context.Context, command commanddomain.Command) error {
+	return f(ctx, command)
 }
 
 func TestWebhook(t *testing.T) {
@@ -88,5 +95,35 @@ func TestWebhookAllowedChatIDs(t *testing.T) {
 	}
 	if processed != 1 {
 		t.Fatalf("processor 呼叫次數 = %d，預期 1", processed)
+	}
+}
+
+func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
+	t.Parallel()
+	commands := 0
+	messages := 0
+	h, err := NewWebhook(
+		"secret",
+		2048,
+		processorFunc(func(context.Context, domain.Message) error { messages++; return nil }),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithCommandProcessor(commandProcessorFunc(func(_ context.Context, command commanddomain.Command) error {
+			commands++
+			if command.Name != commanddomain.NamePing {
+				t.Fatalf("command = %q", command.Name)
+			}
+			return nil
+		}), "liyu_spam_bot"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"update_id":11,"message":{"message_id":2,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"/ping","entities":[{"type":"bot_command","offset":0,"length":5}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+	req.Header.Set(secretHeader, "secret")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || commands != 1 || messages != 0 {
+		t.Fatalf("status=%d commands=%d messages=%d", res.Code, commands, messages)
 	}
 }

@@ -4,7 +4,9 @@ package telegram
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
@@ -20,6 +22,8 @@ type Message struct {
 	Date            int64           `json:"date"`
 	Chat            Chat            `json:"chat"`
 	From            *User           `json:"from,omitempty"`
+	SenderChat      *Chat           `json:"sender_chat,omitempty"`
+	ReplyToMessage  *Message        `json:"reply_to_message,omitempty"`
 	Text            string          `json:"text,omitempty"`
 	Caption         string          `json:"caption,omitempty"`
 	Entities        []MessageEntity `json:"entities,omitempty"`
@@ -37,6 +41,109 @@ type User struct {
 	ID        int64  `json:"id"`
 	IsBot     bool   `json:"is_bot"`
 	FirstName string `json:"first_name"`
+	Username  string `json:"username,omitempty"`
+}
+
+// CommandDisposition 說明 delivery 是否應分流或忽略開頭的 Bot 指令。
+type CommandDisposition uint8
+
+const (
+	// CommandNone 表示訊息不是 Telegram bot command，應繼續垃圾訊息偵測。
+	CommandNone CommandDisposition = iota
+	// CommandHandle 表示指令屬於目前 Bot，應交由 command handler。
+	CommandHandle
+	// CommandIgnore 表示指令明確屬於其他 Bot，不得回覆或偵測。
+	CommandIgnore
+)
+
+// Command 依 Telegram UTF-16 entity 邊界解析開頭指令，避免 Unicode 文字造成 offset 錯位。
+func (u Update) Command(botUsername string) (commanddomain.Command, CommandDisposition) {
+	if u.UpdateID == 0 || u.Message == nil || u.Message.From == nil || u.Message.From.IsBot || u.Message.Chat.ID == 0 || u.Message.MessageID == 0 || !u.Message.Chat.isModeratedGroup() {
+		return commanddomain.Command{}, CommandNone
+	}
+	var entity *MessageEntity
+	for i := range u.Message.Entities {
+		candidate := &u.Message.Entities[i]
+		if candidate.Type == "bot_command" && candidate.Offset == 0 {
+			entity = candidate
+			break
+		}
+	}
+	if entity == nil {
+		return commanddomain.Command{}, CommandNone
+	}
+	token, byteEnd, ok := utf16Segment(u.Message.Text, entity.Offset, entity.Length)
+	if !ok || !strings.HasPrefix(token, "/") || len(token) < 2 {
+		return commanddomain.Command{}, CommandIgnore
+	}
+	namePart := token[1:]
+	if name, suffix, found := strings.Cut(namePart, "@"); found {
+		if !strings.EqualFold(suffix, strings.TrimPrefix(botUsername, "@")) {
+			return commanddomain.Command{}, CommandIgnore
+		}
+		namePart = name
+	}
+	command := commanddomain.Command{
+		UpdateID:  u.UpdateID,
+		ChatID:    u.Message.Chat.ID,
+		MessageID: u.Message.MessageID,
+		Actor:     commanddomain.User{ID: u.Message.From.ID, IsBot: u.Message.From.IsBot, Username: u.Message.From.Username},
+		Name:      commanddomain.Name(strings.ToLower(namePart)),
+		Args:      strings.TrimSpace(u.Message.Text[byteEnd:]),
+	}
+	if reply := u.Message.ReplyToMessage; reply != nil {
+		command.TargetMessage = reply.MessageID
+		if reply.From != nil {
+			command.Target = &commanddomain.User{ID: reply.From.ID, IsBot: reply.From.IsBot, Username: reply.From.Username}
+		}
+	}
+	validated, err := commanddomain.NewCommand(command)
+	if err != nil {
+		return commanddomain.Command{}, CommandIgnore
+	}
+	return validated, CommandHandle
+}
+
+// utf16Segment 將 Telegram UTF-16 code unit offset 安全轉換為 Go UTF-8 byte 邊界。
+func utf16Segment(value string, offset, length int) (string, int, bool) {
+	if offset < 0 || length <= 0 {
+		return "", 0, false
+	}
+	if offset > int(^uint(0)>>1)-length {
+		return "", 0, false
+	}
+	endUnit := offset + length
+	startByte := -1
+	endByte := -1
+	units := 0
+	for byteIndex, r := range value {
+		if units == offset {
+			startByte = byteIndex
+		}
+		width := 1
+		if r > 0xFFFF {
+			width = 2
+		}
+		if units < offset && units+width > offset || units < endUnit && units+width > endUnit {
+			return "", 0, false
+		}
+		units += width
+		if units == endUnit {
+			_, runeWidth := utf8.DecodeRuneInString(value[byteIndex:])
+			endByte = byteIndex + runeWidth
+			break
+		}
+	}
+	if offset == 0 {
+		startByte = 0
+	}
+	if endUnit == 0 {
+		endByte = 0
+	}
+	if startByte < 0 || endByte < startByte {
+		return "", 0, false
+	}
+	return value[startByte:endByte], endByte, true
 }
 
 // MessageEntity 保存 Telegram 已解析的 URL 與 mention 範圍。

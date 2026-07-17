@@ -13,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	redislib "github.com/redis/go-redis/v9"
+	commandapp "github.com/vincent119/tg_spam_bot/internal/command/application"
+	commandredis "github.com/vincent119/tg_spam_bot/internal/command/infra/redis"
 	"github.com/vincent119/tg_spam_bot/internal/config"
 	"github.com/vincent119/tg_spam_bot/internal/detection/application"
 	delivery "github.com/vincent119/tg_spam_bot/internal/detection/delivery/telegram"
@@ -27,18 +29,24 @@ import (
 )
 
 func main() {
+	os.Exit(execute())
+}
+
+// execute 回傳程序退出碼，讓所有已註冊 defer 在 main 呼叫 os.Exit 前完成。
+func execute() int {
 	// 先驗證完整設定，避免 logger 初始化後無法套用 YAML 的等級與格式。
 	cfg, err := config.Load(os.Getenv("CONFIG_FILE"))
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 	zlogger.Init(&zlogger.Config{Level: cfg.Log.Level, Format: cfg.Log.Format, Outputs: []string{"console"}, AddCaller: true})
 	defer func() { _ = zlogger.Sync() }()
 	if err := run(cfg); err != nil {
 		zlogger.Error("應用程式結束", zlogger.Err(err))
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run(cfg config.Config) error {
@@ -100,12 +108,30 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	identity, err := telegram.GetMe(ctx)
+	if err != nil {
+		return fmt.Errorf("驗證 Telegram Bot 身分：%w", err)
+	}
 	exemptions, err := application.NewCachedExemptions(postgresStore, telegram, 5*time.Minute)
 	if err != nil {
 		return err
 	}
 	processor := application.NewProcessor(detector, postgresStore, exemptions, behaviors, postgresStore, telegram, application.Mode(cfg.App.Mode), []byte(cfg.Security.ContentHashKey))
-	webhook, err := delivery.NewWebhook(cfg.Telegram.WebhookSecret, cfg.App.MaxBodyBytes, processor, delivery.WithAllowedChatIDs(cfg.Telegram.AllowedChatIDs))
+	commandLimiter, err := commandredis.NewLimiter(redisClient, 5, 30*time.Second)
+	if err != nil {
+		return err
+	}
+	commandHandler, err := commandapp.NewHandler(telegram, postgresStore, postgresStore, commandLimiter, identity.ID)
+	if err != nil {
+		return err
+	}
+	webhook, err := delivery.NewWebhook(
+		cfg.Telegram.WebhookSecret,
+		cfg.App.MaxBodyBytes,
+		processor,
+		delivery.WithAllowedChatIDs(cfg.Telegram.AllowedChatIDs),
+		delivery.WithCommandProcessor(commandHandler, identity.Username),
+	)
 	if err != nil {
 		return err
 	}
