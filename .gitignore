@@ -1,0 +1,14 @@
+.gocache/
+.gomodcache/
+
+*/temp/
+.cache
+
+.kiro/specs/temp/*
+temp/*
+
+
+data
+.xlsx
+.env
+coverage.out

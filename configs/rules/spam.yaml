@@ -1,0 +1,32 @@
+version: "2026-07-17.1"
+categories:
+  - id: counterfeit
+    name: 偽鈔交易
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    terms: [假鈔, 高防鈔, 驗鈔機, counterfeit money]
+    aliases: [假钞, 高防钞, 验钞机, 過BC機, 过BC机]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]
+  - id: gambling
+    name: 博弈招募
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    terms: [博彩代理, 流水獎勵, 人頭費]
+    aliases: [流水奖励, 人头费, 負盈利]
+    require_any: [telegram_mention, telegram_invite, profit_claim]
+  - id: generic_ad
+    name: 一般廣告
+    severity: normal
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [免費領取, 高薪兼職, 長期穩定供應, guaranteed profit, earn money fast]
+    aliases: [免费领取, 高薪兼职, 长期稳定供应]
+    require_any: []

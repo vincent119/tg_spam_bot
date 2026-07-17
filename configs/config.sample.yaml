@@ -1,0 +1,44 @@
+app:
+  port: 8080
+  env: dev
+  mode: observe
+  business_timezone: Asia/Taipei
+  read_timeout: 10s
+  write_timeout: 30s
+  shutdown_timeout: 30s
+  max_body_bytes: 1048576
+
+log:
+  level: info
+  format: json
+
+db:
+  name: tg_spam
+  primary:
+    host: localhost
+    port: 5432
+    user: "" # ENV: DB_USER
+    password: "" # ENV: DB_PASSWORD
+  replicas: []
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 5m
+  tls:
+    enabled: false
+    mode: verify-full
+    ca_cert: ""
+    client_cert: ""
+    client_key: ""
+
+telegram:
+  bot_token: "" # ENV: TELEGRAM_BOT_TOKEN
+  webhook_secret: "" # ENV: TELEGRAM_WEBHOOK_SECRET
+
+redis:
+  addr: localhost:6379
+
+security:
+  content_hash_key: "" # ENV: CONTENT_HASH_KEY
+
+rules:
+  dir: configs/rules
