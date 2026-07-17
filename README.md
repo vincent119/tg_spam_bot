@@ -1,58 +1,417 @@
 # Telegram 垃圾訊息管理機器人
 
-以 Go 實作的 Telegram supergroup 管理服務，支援繁體中文、簡體中文、英文及混合文字偵測，並提供刪除、30 天違規累計、警告、禁言與封鎖。
+以 Go 實作的 Telegram supergroup 管理服務，支援繁體中文、簡體中文、英文及混合文字偵測。系統透過 Webhook 接收訊息，檢查網址、邀請連結、關鍵詞、發送頻率、重複內容與跨帳號協同行為，並依政策刪除訊息、警告、禁言或封鎖成員。
 
-HTTP 路由使用 Gin，PostgreSQL 存取使用 GORM 並在啟動時執行 `AutoMigrate`，結構化日誌使用 `github.com/vincent119/zlogger`。
+HTTP 路由使用 Gin，PostgreSQL 使用 GORM 與 `AutoMigrate`，短期行為狀態使用 Redis，結構化日誌使用 `github.com/vincent119/zlogger`。
 
-## Telegram 設定
+## 功能
 
-1. 在 `@BotFather` 執行 `/newbot` 取得 Bot Token。
-2. 執行 `/setprivacy` 關閉 Privacy Mode。
-3. 將 Bot 加入 supergroup 並只授予刪除訊息與限制成員權限。
-4. 使用 Telegram `setWebhook` 設定公開 HTTPS URL 與 `secret_token`，路徑為 `/telegram/webhook`。
-
-Bot Token 與 Webhook secret 只能放在環境變數或 Secret Manager，不得提交 Git。
-
-## 應用設定
-
-設定範例位於 `configs/config.sample.yaml`，採 `app`、`log`、`db`、`telegram`、`redis`、`security` 與 `rules` 分層。可透過 `CONFIG_FILE` 指定設定檔；環境變數優先於 YAML。
-
-資料庫可使用 `DB_NAME`、`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD` 分別覆寫，也可用 `DATABASE_URL` 整體覆寫。Bot Token、Webhook secret、資料庫密碼及內容雜湊金鑰不得寫入 YAML。
+- 支援繁體中文、簡體中文、英文及混合文字。
+- 保留原始文字，以正規化原文及繁體轉換副本雙軌比對。
+- 偵測 URL、`t.me`、Telegram 邀請連結、mention、關鍵詞及網域名單。
+- 偵測短時間高頻發文、同帳號重複內容及跨帳號相同內容。
+- Telegram 管理員與 `trusted_members` 可信任成員略過偵測。
+- 以 `update_id`、事件及處置鍵避免 Webhook 重送造成重複處置。
+- 保存偵測結果、違規、處置結果與規則版本，不保存完整訊息內容。
 
 ## 執行模式
 
-- `observe`：只記錄判定，不累計或處置。
-- `delete-only`：只刪除垃圾訊息，不推進違規階梯。
-- `enforce`：一般違規依序警告、禁言 10 分鐘、禁言 24 小時及封鎖；嚴重違規首次直接封鎖。
+| 模式 | 行為 |
+|---|---|
+| `observe` | 只記錄判定，不刪除、不累計有效違規、不限制成員 |
+| `delete-only` | 只刪除垃圾訊息，不推進違規階梯 |
+| `enforce` | 刪除訊息並執行完整違規階梯或嚴重違規處置 |
 
-## Docker Compose
+一般違規以同一群組及成員最近 30 天紀錄計算：
 
-複製 `.env.example` 為 `.env`，替換所有範例秘密值，再執行：
+1. 第一次：刪除訊息並警告。
+2. 第二次：刪除訊息並禁言 10 分鐘。
+3. 第三次：刪除訊息並禁言 24 小時。
+4. 第四次起：刪除訊息並封鎖。
+
+符合 `critical` 門檻及必要組合訊號的嚴重違規，第一次即刪除訊息並封鎖。
+
+## 系統需求
+
+- Go 1.25 以上版本，僅直接執行程式時需要。
+- PostgreSQL 17，其他相容版本需自行驗證。
+- Redis 8，其他相容版本需自行驗證。
+- 可供 Telegram 連入的公開 HTTPS 網址。
+- Docker 與 Docker Compose，使用容器部署時需要。
+
+## 快速啟動 Docker Compose
+
+### 1. 建立環境檔
+
+```sh
+cp .env.example .env
+```
+
+至少替換以下值：
+
+```env
+POSTGRES_PASSWORD=請設定安全的資料庫密碼
+TELEGRAM_BOT_TOKEN=由BotFather取得的Token
+TELEGRAM_WEBHOOK_SECRET=請使用下方命令產生
+CONTENT_HASH_KEY=請使用下方命令產生
+```
+
+產生 Webhook secret 與內容雜湊金鑰：
+
+```sh
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+兩個值必須分開產生，不得共用。`CONTENT_HASH_KEY` 至少 32 字元，正式環境啟用後應固定保存；任意更換會使相同訊息產生不同內容指紋。
+
+### 2. 檢查並啟動
 
 ```sh
 docker compose config
-docker compose up --build
+docker compose up --build -d
+docker compose ps
+docker compose logs -f app
 ```
 
-Compose 會啟動 app、PostgreSQL 與 Redis。PostgreSQL 使用 named volume 保存資料；規則目錄以唯讀方式掛載。本機仍需另行提供可讓 Telegram 連入的公開 HTTPS 反向代理或 tunnel。
+PostgreSQL 與 Redis 健康後，應用程式才會啟動。PostgreSQL 資料與 Redis 狀態分別保存於 named volume。
 
-PostgreSQL 預設只映射到 `127.0.0.1:55432` 供整合測試使用，可用 `POSTGRES_PORT` 覆寫，容器內連線仍使用 `postgres:5432`。
+停止服務但保留資料：
 
-## 規則
+```sh
+docker compose down
+```
 
-規則位於 `configs/rules/*.yaml`。修改時必須更新版本；`ban` 只允許 `critical` 且必須設定 `require_any` 組合訊號。訊息處理使用啟動時建立的記憶體快照，不逐則查詢資料庫。
+除非確定要刪除全部本機資料，否則不要執行 `docker compose down -v`。
+
+## 建立 Telegram Bot
+
+### 1. 取得 Bot Token
+
+1. 在 Telegram 搜尋官方帳號 `@BotFather`。
+2. 傳送 `/newbot`。
+3. 依提示輸入 Bot 顯示名稱與以 `bot` 結尾的 username。
+4. 保存 BotFather 回傳的 Bot Token，設定至 `TELEGRAM_BOT_TOKEN` 或 Secret Manager。
+
+Bot Token 等同帳號密碼，不得寫入程式碼、YAML、日誌、Git commit 或 issue。若疑似洩漏，立即在 BotFather 撤銷並重新產生。
+
+### 2. 關閉 Privacy Mode
+
+1. 對 `@BotFather` 傳送 `/setprivacy`。
+2. 選擇本服務使用的 Bot。
+3. 選擇 `Disable`。
+4. 確認 BotFather 回覆 Privacy Mode 已停用。
+
+關閉後，Bot 才能接收群組的一般訊息。若 Bot 已在群組內，建議移出後重新加入，或重新設定管理員權限，避免舊設定尚未生效。
+
+### 3. 加入 supergroup 並授予最小權限
+
+將 Bot 加入目標 supergroup 並設為管理員，只授予：
+
+- 刪除訊息，對應 `can_delete_messages`。
+- 限制或封鎖成員，對應 `can_restrict_members`。
+
+不要授予新增管理員、修改群組資料、管理語音聊天或其他不需要的權限。
+
+### 4. 查詢群組 ID 與類型
+
+服務只處理 `telegram.allowed_chat_ids` 清單內，且 `chat.type` 為 `group` 或 `supergroup` 的訊息。私人聊天與頻道不會進入偵測、違規累計或處置流程。
+
+公開群組已有 username 時，可直接呼叫 `getChat`：
+
+```sh
+export TELEGRAM_BOT_TOKEN='由BotFather取得的Token'
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat" \
+  --data-urlencode 'chat_id=@群組username'
+```
+
+回應中的 `result.id` 是要填入的值，`result.type` 用來確認聊天類型。例如：
+
+```json
+{"ok":true,"result":{"id":-1001234567890,"type":"supergroup","title":"測試群組"}}
+```
+
+私人群組沒有 username 時，可暫時移除 Webhook，再由群組成員發送一則測試訊息：
+
+```sh
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
+  --data-urlencode 'drop_pending_updates=false'
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates"
+```
+
+從 `result[].message.chat.id` 取得 ID，並以 `result[].message.chat.type` 確認類型。取得後必須重新執行下方 `setWebhook`；Webhook 啟用期間不能使用 `getUpdates`。
+
+Telegram 常見聊天類型如下：
+
+| `chat.type` | 說明 | 本服務是否處理 |
+|---|---|---|
+| `private` | Bot 與使用者的私人聊天 | 否 |
+| `group` | 基本群組 | 是 |
+| `supergroup` | 超級群組，建議使用 | 是 |
+| `channel` | 頻道；貼文通常由 `channel_post` 傳送 | 否 |
+
+超級群組與頻道的 ID 通常以 `-100` 開頭，基本群組 ID 通常是其他負數；前綴不是可靠的類型判斷方式，必須查看 `chat.type`。
+
+設定一個或多個允許群組：
+
+```yaml
+telegram:
+  allowed_chat_ids:
+    - -1001234567890
+    - -1009876543210
+```
+
+環境變數使用逗號分隔且不要加空格：
+
+```sh
+export TELEGRAM_ALLOWED_CHAT_IDS='-1001234567890,-1009876543210'
+```
+
+## 設定 Telegram Webhook
+
+Webhook 必須是 Telegram 可連入的公開 HTTPS URL，完整路徑固定為：
+
+```text
+https://你的網域/telegram/webhook
+```
+
+先在目前 shell 設定值：
+
+```sh
+export TELEGRAM_BOT_TOKEN='由BotFather取得的Token'
+export TELEGRAM_WEBHOOK_SECRET='與服務設定相同的Secret'
+export PUBLIC_BASE_URL='https://你的網域'
+```
+
+註冊 Webhook：
+
+```sh
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=${PUBLIC_BASE_URL}/telegram/webhook" \
+  --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
+  --data-urlencode 'allowed_updates=["message"]'
+```
+
+查詢 Bot 身分與 Webhook 狀態：
+
+```sh
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+```
+
+`getWebhookInfo` 的 `url` 必須正確，`pending_update_count` 應持續下降，`last_error_message` 應為空。Webhook 與 long polling 不能同時使用。
+
+移除 Webhook：
+
+```sh
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
+  --data-urlencode "drop_pending_updates=false"
+```
+
+## 應用設定
+
+設定範例位於 `configs/config.sample.yaml`。實際執行可透過 `CONFIG_FILE` 指定 YAML；環境變數優先於 YAML，適合用來注入秘密值。
+
+主要環境變數：
+
+| 環境變數 | 用途 | 必要性 |
+|---|---|---|
+| `CONFIG_FILE` | YAML 設定檔路徑 | 直接執行時建議設定 |
+| `APP_MODE` | `observe`、`delete-only` 或 `enforce` | 否，預設 `observe` |
+| `HTTP_ADDR` | 完整監聽位址，例如 `:8080` | 否 |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 是 |
+| `TELEGRAM_WEBHOOK_SECRET` | Webhook Secret Header 驗證值 | 是 |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | 允許處理的群組 ID，包含多筆時以逗號分隔 | 是 |
+| `DATABASE_URL` | 完整 PostgreSQL DSN，設定後覆蓋 DB 分項 | 擇一 |
+| `DB_NAME`、`DB_HOST`、`DB_PORT` | PostgreSQL 位置 | 擇一 |
+| `DB_USER`、`DB_PASSWORD` | PostgreSQL 憑證 | 擇一 |
+| `REDIS_ADDR` | Redis `host:port` | 是 |
+| `REDIS_USERNAME` | Redis 6+ ACL username | 否 |
+| `REDIS_PASSWORD` | Redis Client 密碼 | 否 |
+| `REDIS_REQUIREPASS` | `password` 為空時的相容密碼 | 否 |
+| `REDIS_DB` | Redis logical database | 否，預設 `0` |
+| `CONTENT_HASH_KEY` | 產生不可逆內容指紋的金鑰 | 是，至少 32 字元 |
+| `RULES_DIR` | 規則 YAML 目錄 | 否 |
+
+Redis Client 優先使用 `REDIS_PASSWORD`，只有其為空時才使用 `REDIS_REQUIREPASS`。`requirepass` 原本是 Redis Server 設定名稱，保留此欄位只為相容既有部署命名。
+
+## PostgreSQL 初始化
+
+外部 PostgreSQL 只需先建立應用程式使用者與 database，不需要手動建立資料表：
+
+```sql
+CREATE USER tg_spam WITH PASSWORD '請替換為安全密碼';
+CREATE DATABASE tg_spam OWNER tg_spam;
+```
+
+應用程式帳號需要 database 連線權限，以及目標 schema 的 `USAGE`、`CREATE` 和其建立物件的讀寫權限。建議讓應用程式帳號成為 database 與 schema owner。
+
+服務啟動時，GORM `AutoMigrate` 會建立：
+
+- `processed_updates`
+- `detection_events`
+- `violations`
+- `enforcement_actions`
+- `trusted_members`
+
+同時建立索引、約束及資料表與欄位註解。新環境不要再手動執行 `migrations/*.sql`，避免舊 SQL 約束名稱與 GORM 命名衝突。
+
+Docker Compose 會自動建立 `tg_spam` 使用者與 database，不需要額外執行上述 SQL。
+
+## Redis
+
+Redis 保存發送頻率、短期重複內容與跨帳號內容指紋，資料具有 TTL，不是永久稽核來源。永久偵測、違規與處置紀錄保存於 PostgreSQL。
+
+專案內建的 Docker Compose Redis 預設未啟用密碼。連線外部 Redis 或啟用 ACL 時，使用 `REDIS_USERNAME` 與 `REDIS_PASSWORD`；若沿用 `requirepass` 命名，可改用 `REDIS_REQUIREPASS`。
+
+## 規則設定
+
+規則位於 `configs/rules/*.yaml`。服務只在啟動時載入，修改後必須重新啟動。所有檔案會合併為完整快照，任一規則無效時服務拒絕啟動。
+
+規則主要欄位：
+
+```yaml
+version: "2026-07-17.1"
+categories:
+  - id: generic_ad
+    name: 一般廣告
+    severity: normal
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [免費領取, guaranteed profit]
+    aliases: [免费领取]
+    require_any: []
+```
+
+注意事項：
+
+- `id` 必須唯一。
+- `ban` 只允許搭配 `critical`。
+- `critical + ban` 必須設定 `require_any`，避免單一模糊詞直接封鎖。
+- 大量詞彙放在 YAML 並於啟動時編譯，訊息處理時不查詢資料庫。
+- 新規則應先使用 `observe` 模式校準，再逐步切換模式。
+
+## 可信任成員
+
+Telegram 管理員會自動略過偵測。其他可信任成員可寫入 PostgreSQL：
+
+```sql
+INSERT INTO trusted_members (chat_id, user_id, reason, enabled, created_at)
+VALUES (-1001234567890, 123456789, '群組可信任成員', true, now())
+ON CONFLICT (chat_id, user_id)
+DO UPDATE SET reason = EXCLUDED.reason, enabled = EXCLUDED.enabled;
+```
+
+`chat_id` 與 `user_id` 必須使用 Telegram 實際識別碼，可信任關係以群組為範圍。
+
+## HTTP 端點與健康檢查
+
+| 方法 | 路徑 | 用途 | 成功狀態 |
+|---|---|---|---|
+| `POST` | `/telegram/webhook` | 接收 Telegram Update | `204` |
+| `GET` | `/health/live` | 確認程序仍在運作 | `204` |
+| `GET` | `/health/ready` | 確認 PostgreSQL 與 Redis 可用 | `204` |
+
+檢查本機健康狀態：
+
+```sh
+curl -i http://127.0.0.1:8080/health/live
+curl -i http://127.0.0.1:8080/health/ready
+```
+
+目前 `/health/ready` 尚未驗證 Telegram Bot 身分、Webhook URL、`can_delete_messages` 或 `can_restrict_members`。部署時仍需使用 `getMe`、`getWebhookInfo` 及群組管理員設定人工確認。
+
+目前服務只有 Telegram Webhook 與健康端點，尚未提供管理 REST API，因此沒有 Swagger UI 或 OpenAPI 文件端點。
+
+## 直接執行
+
+`make run` 預設讀取 `configs/config.yaml`：
+
+```sh
+export TELEGRAM_BOT_TOKEN='由BotFather取得的Token'
+export TELEGRAM_WEBHOOK_SECRET='WebhookSecret'
+export DB_USER='tg_spam'
+export DB_PASSWORD='資料庫密碼'
+export REDIS_ADDR='127.0.0.1:6379'
+export CONTENT_HASH_KEY="$(openssl rand -hex 32)"
+make run
+```
+
+指定其他設定檔：
+
+```sh
+CONFIG_FILE=/path/to/config.yaml make run
+```
+
+不要在正式環境每次啟動時重新產生 `CONTENT_HASH_KEY`；上述命令只用於首次建立本機開發秘密值。
+
+## Docker 映像
+
+預設映像為 `docker.io/vincent119/tg_spam_bot:latest`：
+
+```sh
+make docker-login
+make docker-build
+make docker-push
+```
+
+指定版本並建置、推送：
+
+```sh
+DOCKER_TAG=v1.0.0 make docker-publish
+```
+
+Docker 登入採互動方式，密碼不得放入 Makefile、命令列、Git 或 CI 明文變數。
 
 ## 開發驗證
 
 ```sh
 make fmt
 make vet
+make lint
 make test
 make cover
+make bench
 ```
 
-服務提供 `/health/live` 與 `/health/ready` 健康端點。管理紀錄只保存內容指紋與判定摘要，不保存完整訊息或秘密值。
+PostgreSQL Repository 整合測試只有在設定 `TEST_DATABASE_URL` 時執行。正式 CI 應提供隔離的 PostgreSQL 與 Redis 服務。
 
-## 測試覆蓋率
+## 常見問題
 
-目前核心規則、Webhook、application policy 與記憶體狀態已有單元測試；整體 coverage 尚未達 80%，主要缺口為 PostgreSQL、Redis、程序啟動及 Telegram 外部 API 的整合路徑。Repository 整合測試可透過 `TEST_DATABASE_URL` 啟用，後續應在 CI 提供隔離的 PostgreSQL 與 Redis 服務後再提高門檻。
+### `security.content_hash_key: must contain at least 32 characters`
+
+`CONTENT_HASH_KEY` 未設定或長度不足。執行 `openssl rand -hex 32` 產生固定金鑰，保存於 `.env` 或 Secret Manager。
+
+### Bot 收不到一般群組訊息
+
+確認 `/setprivacy` 已選擇 `Disable`，Bot 已重新加入群組、具有管理員身分、群組 ID 已列於 `TELEGRAM_ALLOWED_CHAT_IDS`，而且 Webhook 的 `allowed_updates` 包含 `message`。
+
+### 群組訊息收到 `204` 但未執行偵測
+
+確認更新內的 `message.chat.id` 已列於 `telegram.allowed_chat_ids`，且 `message.chat.type` 是 `group` 或 `supergroup`。未授權群組、私人聊天與頻道會刻意回傳 `204` 並忽略，避免 Telegram 重送及洩漏允許清單狀態。
+
+### Webhook 持續失敗
+
+依序確認公開網址使用有效 HTTPS、反向代理轉送至 `/telegram/webhook`、服務與 `setWebhook` 使用相同 secret，並查看 `getWebhookInfo` 的 `last_error_message`。
+
+### Bot 無法刪除、禁言或封鎖
+
+確認 Bot 在目標 supergroup 具有 `can_delete_messages` 與 `can_restrict_members`。不要以 Privacy Mode 設定取代管理員權限。
+
+### PostgreSQL 啟動時 AutoMigrate 失敗
+
+確認 database 已存在、帳號是 database 或 schema owner，並具有 `USAGE` 與 `CREATE`。若資料表由舊 SQL migration 建立，需先處理約束名稱相容性，不要直接刪除正式資料。
+
+### Redis 驗證失敗
+
+確認 `REDIS_USERNAME`、`REDIS_PASSWORD`、`REDIS_REQUIREPASS` 與 `REDIS_DB` 符合 Redis Server 設定。ACL 環境通常同時需要 username 與 password。
+
+## 安全注意事項
+
+- Bot Token、Webhook secret、資料庫密碼、Redis 密碼及內容雜湊金鑰不得提交 Git。
+- Webhook 必須使用 HTTPS，並設定 `secret_token`。
+- Bot 僅授予刪除訊息及限制成員權限。
+- 管理紀錄只保存必要識別碼、內容指紋與判定摘要，不保存完整訊息。
+- 正式環境先使用 `observe` 校準規則，確認誤判率後再切換模式。

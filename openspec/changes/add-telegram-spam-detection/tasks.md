@@ -63,4 +63,10 @@
 - [x] 8.2 將 PostgreSQL repository 改用 GORM，定義含繁體中文 table/column comments 的 models 並於啟動執行 `AutoMigrate`
 - [x] 8.3 將應用程式結構化日誌改用 `github.com/vincent119/zlogger`，支援設定、Context 欄位與關機 Sync
 - [x] 8.4 更新測試、Docker Compose、README 與 OpenSpec，執行 race test、lint、vet 及容器啟動驗證
-- [ ] 8.5 將 Viper 設定改為具結構的 app、log、db 分層，支援連線池、TLS、環境變數覆寫及設定載入測試
+- [x] 8.5 將 Viper 設定改為具結構的 app、log、db 分層，支援連線池、TLS、環境變數覆寫及設定載入測試
+- [x] 8.6 在 Makefile 新增本機 run、Docker Hub 安全登入、映像建置與推送目標，並補充使用文件
+- [x] 8.7 在 README 說明外部 PostgreSQL 只需建立使用者與 database，資料表由 GORM AutoMigrate 建立
+- [x] 8.8 補齊主要 Go 程式公開 API 與安全、冪等、生命週期關鍵流程的繁體中文註解
+- [x] 8.9 擴充 Redis 結構化設定，支援 ACL username、password、requirepass 相容欄位、logical database 與環境變數覆寫
+- [x] 8.10 全面補強 README，涵蓋 Telegram BotFather、Privacy Mode、Webhook、設定、資料庫、Redis、規則、健康檢查、部署驗證與故障排查
+- [x] 8.11 新增 Telegram 群組允許清單，限制群組類型並補充查詢 `chat.id`、`chat.type` 的操作文件

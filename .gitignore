@@ -12,3 +12,4 @@ data
 .xlsx
 .env
 coverage.out
+configs/config.yaml

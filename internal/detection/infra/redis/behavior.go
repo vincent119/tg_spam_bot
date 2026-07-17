@@ -1,3 +1,4 @@
+// Package redis 提供跨程序共享的短期垃圾訊息行為狀態。
 package redis
 
 import (
@@ -10,12 +11,14 @@ import (
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
+// BehaviorStore 以 Redis 共享多副本的短期頻率與內容協同狀態。
 type BehaviorStore struct {
 	client *redislib.Client
 	window time.Duration
 	now    func() time.Time
 }
 
+// NewBehaviorStore 建立具有固定時間窗的行為訊號儲存器。
 func NewBehaviorStore(client *redislib.Client, window time.Duration) (*BehaviorStore, error) {
 	if client == nil || window <= 0 {
 		return nil, fmt.Errorf("redis client and positive window are required")
@@ -23,6 +26,7 @@ func NewBehaviorStore(client *redislib.Client, window time.Duration) (*BehaviorS
 	return &BehaviorStore{client: client, window: window, now: time.Now}, nil
 }
 
+// Observe 原子更新時間窗資料並回傳達到門檻的行為訊號。
 func (s *BehaviorStore) Observe(ctx context.Context, message domain.Message, fingerprint string) ([]string, error) {
 	now := s.now()
 	start := now.Add(-s.window).UnixMilli()

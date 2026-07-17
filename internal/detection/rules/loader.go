@@ -1,3 +1,4 @@
+// Package rules 載入並驗證具版本的 YAML 垃圾訊息規則快照。
 package rules
 
 import (
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// LoadDir 載入目錄內完整 YAML 集合，任一檔案無效時拒絕部分快照。
 func LoadDir(dir string) (domain.RuleSet, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

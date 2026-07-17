@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ func TestValidate(t *testing.T) {
 	valid.Log.Format = "json"
 	valid.Telegram.BotToken = "token"
 	valid.Telegram.WebhookSecret = "secret"
+	valid.Telegram.AllowedChatIDs = []int64{-1001234567890}
 	valid.DB.URL = "postgres://db"
 	valid.DB.MaxOpenConns = 25
 	valid.DB.MaxIdleConns = 5
@@ -38,6 +41,9 @@ func TestValidate(t *testing.T) {
 		{name: "valid", mutate: func(*Config) {}},
 		{name: "invalid mode", mutate: func(c *Config) { c.App.Mode = "bad" }, wantErr: true},
 		{name: "missing token", mutate: func(c *Config) { c.Telegram.BotToken = "" }, wantErr: true},
+		{name: "missing allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = nil }, wantErr: true},
+		{name: "zero allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{0} }, wantErr: true},
+		{name: "duplicate allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{-1001, -1001} }, wantErr: true},
 		{name: "short hash key", mutate: func(c *Config) { c.Security.ContentHashKey = "short" }, wantErr: true},
 	}
 	for _, tt := range tests {
@@ -56,9 +62,39 @@ func TestLoadStructuredSample(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "secret")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
 	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "webhook-secret")
+	t.Setenv("TELEGRAM_ALLOWED_CHAT_IDS", "-1001234567890,-1009876543210")
 	t.Setenv("CONTENT_HASH_KEY", "01234567890123456789012345678901")
+	t.Setenv("REDIS_USERNAME", "app")
+	t.Setenv("REDIS_PASSWORD", "redis-secret")
+	t.Setenv("REDIS_DB", "2")
 
-	cfg, err := Load("../../configs/config.sample.yaml")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`
+app:
+  port: 8080
+  mode: observe
+  business_timezone: Asia/Taipei
+  read_timeout: 10s
+  write_timeout: 30s
+  shutdown_timeout: 30s
+log:
+  level: info
+  format: json
+db:
+  name: tg_spam
+  primary:
+    host: localhost
+    port: 5432
+redis:
+  addr: localhost:6379
+rules:
+  dir: configs/rules
+`)
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		t.Fatalf("建立測試設定檔失敗：%v", err)
+	}
+
+	cfg, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -67,5 +103,11 @@ func TestLoadStructuredSample(t *testing.T) {
 	}
 	if got := cfg.DatabaseURL(); !strings.Contains(got, "tg_spam:secret@localhost:5432/tg_spam") {
 		t.Fatalf("DatabaseURL() = %q", got)
+	}
+	if cfg.Redis.Username != "app" || cfg.RedisPassword() != "redis-secret" || cfg.Redis.DB != 2 {
+		t.Fatalf("未正確載入 Redis 設定：%+v", cfg.Redis)
+	}
+	if len(cfg.Telegram.AllowedChatIDs) != 2 || cfg.Telegram.AllowedChatIDs[0] != -1001234567890 {
+		t.Fatalf("未正確載入 Telegram 允許群組：%+v", cfg.Telegram.AllowedChatIDs)
 	}
 }

@@ -94,17 +94,24 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+// Claim 以資料庫唯一鍵原子占用 update_id，收斂跨程序重送。
 func (s *Store) Claim(ctx context.Context, id int64) (bool, error) {
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&processedUpdate{UpdateID: id, Status: "processing", ClaimedAt: time.Now().UTC()})
 	return result.RowsAffected == 1, result.Error
 }
+
+// Complete 將已完整處理的 Telegram 更新標記完成。
 func (s *Store) Complete(ctx context.Context, id int64) error {
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Model(&processedUpdate{}).Where("update_id = ?", id).Updates(map[string]any{"status": "completed", "completed_at": now}).Error
 }
+
+// Release 只釋放仍在 processing 的更新，讓失敗請求可重試。
 func (s *Store) Release(ctx context.Context, id int64) error {
 	return s.db.WithContext(ctx).Where("update_id = ? AND status = ?", id, "processing").Delete(&processedUpdate{}).Error
 }
+
+// IsExempt 查詢群組範圍且仍啟用的可信任成員。
 func (s *Store) IsExempt(ctx context.Context, chatID, userID int64) (bool, string, error) {
 	var m trustedMember
 	err := s.db.WithContext(ctx).Where("chat_id=? AND user_id=? AND enabled", chatID, userID).First(&m).Error
@@ -113,9 +120,13 @@ func (s *Store) IsExempt(ctx context.Context, chatID, userID int64) (bool, strin
 	}
 	return err == nil, m.Reason, err
 }
+
+// RecordDetection 保存觀測或非垃圾訊息的可稽核判定。
 func (s *Store) RecordDetection(ctx context.Context, event application.Event) error {
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(toEvent(event)).Error
 }
+
+// Create 在單一 transaction 內建立違規並計算 30 天處置階梯。
 func (s *Store) Create(ctx context.Context, event application.Event) (count int, actions []application.EnforcementAction, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(toEvent(event)).Error; e != nil {
@@ -144,6 +155,8 @@ func (s *Store) Create(ctx context.Context, event application.Event) (count int,
 	})
 	return
 }
+
+// CompleteAction 保存每項 Telegram API 呼叫的獨立結果。
 func (s *Store) CompleteAction(ctx context.Context, key string, result application.ActionResult) error {
 	status := "failed"
 	if result.Succeeded {

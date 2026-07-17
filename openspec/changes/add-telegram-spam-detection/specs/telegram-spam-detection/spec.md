@@ -15,6 +15,10 @@
 - **WHEN** Telegram 再次送達已完成或正在處理的 `update_id`
 - **THEN** 系統不得重複評分、累計違規、刪除、警告、禁言或封鎖
 
+#### Scenario: 忽略未授權或不支援的聊天
+- **WHEN** 更新的 `chat_id` 不在允許清單，或 `chat.type` 不是 `group` 或 `supergroup`
+- **THEN** 系統回傳成功且不得進行偵測、違規累計、處置或揭露允許清單狀態
+
 ### Requirement: 正規化可偵測訊息
 系統 SHALL 從訊息文字、媒體說明文字及可用的轉傳或引用文字建立有界標準化輸入，並保留更新、聊天、訊息、發送者及 Telegram entities 識別資訊。
 

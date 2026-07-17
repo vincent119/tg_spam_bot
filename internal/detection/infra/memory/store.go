@@ -1,3 +1,4 @@
+// Package memory 提供單程序開發與測試用的有界狀態儲存器。
 package memory
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
+// Store 提供單程序開發與測試使用的有界狀態儲存器。
 type Store struct {
 	mu         sync.Mutex
 	updates    map[int64]bool
@@ -30,6 +32,7 @@ type observation struct {
 	fingerprint string
 }
 
+// NewStore 建立具有時間窗與容量上限的記憶體儲存器。
 func NewStore(window time.Duration, maxEntries int) *Store {
 	return &Store{
 		updates: make(map[int64]bool), trusted: make(map[string]string),
@@ -39,6 +42,7 @@ func NewStore(window time.Duration, maxEntries int) *Store {
 	}
 }
 
+// Claim 原子占用 update_id，防止同程序重複處理。
 func (s *Store) Claim(_ context.Context, updateID int64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -49,6 +53,7 @@ func (s *Store) Claim(_ context.Context, updateID int64) (bool, error) {
 	return true, nil
 }
 
+// Complete 將更新標記為完整處理完成。
 func (s *Store) Complete(_ context.Context, updateID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,6 +64,7 @@ func (s *Store) Complete(_ context.Context, updateID int64) error {
 	return nil
 }
 
+// Release 釋放失敗處理的占用，允許後續安全重試。
 func (s *Store) Release(_ context.Context, updateID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,6 +74,7 @@ func (s *Store) Release(_ context.Context, updateID int64) error {
 	return nil
 }
 
+// IsExempt 查詢群組範圍的可信任成員設定。
 func (s *Store) IsExempt(_ context.Context, chatID, userID int64) (bool, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,12 +82,14 @@ func (s *Store) IsExempt(_ context.Context, chatID, userID int64) (bool, string,
 	return ok, reason, nil
 }
 
+// Trust 新增僅供目前程序使用的可信任成員。
 func (s *Store) Trust(chatID, userID int64, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.trusted[key(chatID, userID)] = reason
 }
 
+// Observe 計算有界時間窗內的頻率、重複及跨帳號訊號。
 func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,12 +141,14 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 	return signals, nil
 }
 
+// RecordJoin 保存 Bot 實際觀測到的入群時間。
 func (s *Store) RecordJoin(chatID, userID int64, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.joined[key(chatID, userID)] = at
 }
 
+// RecordDetection 保存不會推進違規階梯的觀測結果。
 func (s *Store) RecordDetection(_ context.Context, event application.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,6 +156,7 @@ func (s *Store) RecordDetection(_ context.Context, event application.Event) erro
 	return nil
 }
 
+// Create 原子建立有效違規並依次數產生冪等處置計畫。
 func (s *Store) Create(_ context.Context, event application.Event) (int, []application.EnforcementAction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -175,6 +187,7 @@ func (s *Store) Create(_ context.Context, event application.Event) (int, []appli
 	return len(valid), actions, nil
 }
 
+// CompleteAction 保存單項處置結果，避免部分失敗無法追蹤。
 func (s *Store) CompleteAction(_ context.Context, actionKey string, result application.ActionResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

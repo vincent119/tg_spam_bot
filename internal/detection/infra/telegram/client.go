@@ -1,3 +1,4 @@
+// Package telegram 提供最小權限管理所需的 Telegram Bot API Client。
 package telegram
 
 import (
@@ -11,12 +12,14 @@ import (
 	"time"
 )
 
+// Client 封裝最小權限管理所需的 Telegram Bot API。
 type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
 }
 
+// NewClient 建立重用 Transport 且具有整體逾時的 Telegram Client。
 func NewClient(baseURL, token string, client *http.Client) (*Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("telegram token is required")
@@ -27,23 +30,28 @@ func NewClient(baseURL, token string, client *http.Client) (*Client, error) {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, http: client}, nil
 }
 
+// DeleteMessage 刪除已判定為垃圾訊息的群組訊息。
 func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
 	return c.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID})
 }
 
+// SendWarning 發送包含成員識別碼的群組警告。
 func (c *Client) SendWarning(ctx context.Context, chatID, userID int64, text string) error {
 	return c.call(ctx, "sendMessage", map[string]any{"chat_id": chatID, "text": fmt.Sprintf("使用者 %d：%s", userID, text)})
 }
 
+// RestrictMember 將成員限制至指定 UTC 時間。
 func (c *Client) RestrictMember(ctx context.Context, chatID, userID int64, until time.Time) error {
 	permissions := map[string]bool{"can_send_messages": false}
 	return c.call(ctx, "restrictChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "permissions": permissions, "until_date": until.Unix()})
 }
 
+// BanMember 封鎖符合嚴重規則或達到第四階梯的成員。
 func (c *Client) BanMember(ctx context.Context, chatID, userID int64) error {
 	return c.call(ctx, "banChatMember", map[string]any{"chat_id": chatID, "user_id": userID, "revoke_messages": true})
 }
 
+// AdminIDs 取得管理員識別碼供偵測前豁免使用。
 func (c *Client) AdminIDs(ctx context.Context, chatID int64) ([]int64, error) {
 	var result []struct {
 		User struct {

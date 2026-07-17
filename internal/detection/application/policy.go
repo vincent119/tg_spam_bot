@@ -2,6 +2,7 @@ package application
 
 import "github.com/vincent119/tg_spam_bot/internal/detection/domain"
 
+// PlanActions 將偵測結果及 30 天違規次數轉為可冪等執行的處置順序。
 func PlanActions(result domain.Result, mode Mode, count int) []ActionKind {
 	if !result.Spam || mode == ModeObserve {
 		return nil

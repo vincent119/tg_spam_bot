@@ -6,3 +6,4 @@ coverage.out
 data
 Screenshot*.png
 openspec
+configs/config.yaml

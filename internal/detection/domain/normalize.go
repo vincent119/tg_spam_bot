@@ -9,25 +9,31 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// ChineseConverter 隔離繁簡轉換套件，讓規則引擎可測試且可替換字典。
 type ChineseConverter interface {
 	ToTraditional(text string) string
 }
 
+// OpenCCConverter 使用台灣繁體字典產生額外比對副本。
 type OpenCCConverter struct{}
 
+// ToTraditional 轉換文字但不覆寫原始內容。
 func (OpenCCConverter) ToTraditional(text string) string {
 	return opencc.Convert("s2twp", text)
 }
 
+// Normalizer 建立長度受限且可穩定比對的文字版本。
 type Normalizer struct {
 	converter ChineseConverter
 	maxRunes  int
 }
 
+// NewNormalizer 建立具有輸入字數上限的正規化器。
 func NewNormalizer(converter ChineseConverter, maxRunes int) Normalizer {
 	return Normalizer{converter: converter, maxRunes: maxRunes}
 }
 
+// Normalize 保留原文，並產生 Unicode 正規化與繁體轉換兩條比對軌道。
 func (n Normalizer) Normalize(text string) NormalizedText {
 	original := limitRunes(text, n.maxRunes)
 	normalized := normalizeComparable(original)
@@ -60,10 +66,10 @@ func normalizeComparable(text string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func limitRunes(text string, max int) string {
-	if max <= 0 || utf8.RuneCountInString(text) <= max {
+func limitRunes(text string, limit int) string {
+	if limit <= 0 || utf8.RuneCountInString(text) <= limit {
 		return text
 	}
 	runes := []rune(text)
-	return string(runes[:max])
+	return string(runes[:limit])
 }

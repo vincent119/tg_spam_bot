@@ -1,28 +1,39 @@
+# 應用程式、HTTP Server 與處置模式設定。
 app:
+  # HTTP 監聽連接埠；HTTP_ADDR 存在時由環境變數完整覆寫位址。
   port: 8080
+  # 部署環境識別，用於日誌與後續可觀測性欄位。
   env: dev
+  # observe、delete-only 或 enforce。
   mode: observe
+  # 僅供業務顯示，資料庫時間仍以 UTC 儲存。
   business_timezone: Asia/Taipei
   read_timeout: 10s
   write_timeout: 30s
   shutdown_timeout: 30s
+  # 限制 Telegram Webhook body，避免超大請求耗盡記憶體。
   max_body_bytes: 1048576
 
+# zlogger 結構化日誌設定；正式環境建議使用 json。
 log:
   level: info
   format: json
 
+# PostgreSQL 與 GORM 連線池設定。
 db:
   name: tg_spam
+  # 主要節點負責目前所有讀寫操作。
   primary:
     host: localhost
     port: 5432
     user: "" # ENV: DB_USER
     password: "" # ENV: DB_PASSWORD
+  # 預留唯讀節點；目前版本尚未進行讀寫分離。
   replicas: []
   max_open_conns: 25
   max_idle_conns: 5
   conn_max_lifetime: 5m
+  # enabled=false 時固定使用 sslmode=disable。
   tls:
     enabled: false
     mode: verify-full
@@ -30,15 +41,26 @@ db:
     client_cert: ""
     client_key: ""
 
+# Telegram 秘密值只能由環境變數或 Secret Manager 注入。
 telegram:
   bot_token: "" # ENV: TELEGRAM_BOT_TOKEN
   webhook_secret: "" # ENV: TELEGRAM_WEBHOOK_SECRET
+  # 僅處理清單內的 group 或 supergroup；可用逗號分隔的 TELEGRAM_ALLOWED_CHAT_IDS 覆寫。
+  allowed_chat_ids:
+    - -1001234567890
 
+# Redis 保存短時間頻率、重複內容與跨帳號協同訊號。
 redis:
-  addr: localhost:6379
+  addr: "redis:6379"
+  username: "" # ENV: REDIS_USERNAME
+  password: "" # ENV: REDIS_PASSWORD
+  requirepass: "" # ENV: REDIS_REQUIREPASS
+  db: 0
 
+# 安全設定不得提交真實秘密值。
 security:
   content_hash_key: "" # ENV: CONTENT_HASH_KEY
 
+# 啟動時載入並編譯規則，訊息熱路徑不查詢資料庫。
 rules:
   dir: configs/rules

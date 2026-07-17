@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// Validate 拒絕不完整規則及可能由單一模糊詞直接封鎖的危險設定。
 func (r RuleSet) Validate() error {
 	var errs []error
 	if strings.TrimSpace(r.Version) == "" {
@@ -38,6 +39,7 @@ func (r RuleSet) Validate() error {
 	return errors.Join(errs...)
 }
 
+// Detector 使用啟動時固定的規則快照執行可解釋評分。
 type Detector struct {
 	rules      RuleSet
 	normalizer Normalizer
@@ -45,6 +47,7 @@ type Detector struct {
 	deny       []string
 }
 
+// NewDetector 完整驗證規則後建立不可變的網域與文字比對索引。
 func NewDetector(rules RuleSet, normalizer Normalizer, allowDomains, denyDomains []string) (*Detector, error) {
 	if err := rules.Validate(); err != nil {
 		return nil, err
@@ -57,6 +60,7 @@ func NewDetector(rules RuleSet, normalizer Normalizer, allowDomains, denyDomains
 	}, nil
 }
 
+// Detect 同時比對原文正規化結果與繁體副本，再合併行為訊號評分。
 func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 	text := d.normalizer.Normalize(message.Text)
 	signals := detectSignals(text.Normalized, message.Entities, d.allow, d.deny)

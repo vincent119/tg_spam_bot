@@ -1,3 +1,4 @@
+// Package main 組裝 Telegram 垃圾訊息偵測服務及其完整生命週期。
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 )
 
 func main() {
+	// 先驗證完整設定，避免 logger 初始化後無法套用 YAML 的等級與格式。
 	cfg, err := config.Load(os.Getenv("CONFIG_FILE"))
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -40,6 +42,7 @@ func main() {
 }
 
 func run(cfg config.Config) error {
+	// 根 context 統一傳遞終止訊號，確保外部 I/O 與 HTTP Server 能依序收斂。
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -55,6 +58,7 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	// 新環境只需預先建立 database；資料表、索引與註解由模型統一建立。
 	if err := pgstore.AutoMigrate(ctx, db); err != nil {
 		return err
 	}
@@ -74,7 +78,12 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	redisClient := redislib.NewClient(&redislib.Options{Addr: cfg.Redis.Addr})
+	redisClient := redislib.NewClient(&redislib.Options{
+		Addr:     cfg.Redis.Addr,
+		Username: cfg.Redis.Username,
+		Password: cfg.RedisPassword(),
+		DB:       cfg.Redis.DB,
+	})
 	defer func() {
 		if closeErr := redisClient.Close(); closeErr != nil {
 			zlogger.Error("關閉 Redis Client 失敗", zlogger.Err(closeErr))
@@ -96,7 +105,7 @@ func run(cfg config.Config) error {
 		return err
 	}
 	processor := application.NewProcessor(detector, postgresStore, exemptions, behaviors, postgresStore, telegram, application.Mode(cfg.App.Mode), []byte(cfg.Security.ContentHashKey))
-	webhook, err := delivery.NewWebhook(cfg.Telegram.WebhookSecret, cfg.App.MaxBodyBytes, processor)
+	webhook, err := delivery.NewWebhook(cfg.Telegram.WebhookSecret, cfg.App.MaxBodyBytes, processor, delivery.WithAllowedChatIDs(cfg.Telegram.AllowedChatIDs))
 	if err != nil {
 		return err
 	}
@@ -107,6 +116,7 @@ func run(cfg config.Config) error {
 	router.POST("/telegram/webhook", func(c *gin.Context) { webhook.ServeHTTP(c.Writer, c.Request) })
 	router.GET("/health/live", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.GET("/health/ready", func(c *gin.Context) {
+		// 就緒狀態必須同時反映永久資料與短期行為狀態的可用性。
 		checkCtx, cancel := context.WithTimeout(c.Request.Context(), time.Second)
 		defer cancel()
 		if err := sqlDB.PingContext(checkCtx); err != nil || redisClient.Ping(checkCtx).Err() != nil {
@@ -122,6 +132,7 @@ func run(cfg config.Config) error {
 
 	select {
 	case <-ctx.Done():
+		// 停止接受新請求後，允許進行中的 Webhook 在設定期限內完成。
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.App.ShutdownTimeout)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)

@@ -11,6 +11,7 @@ import (
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
+// Processor 協調冪等占用、豁免、偵測、違規保存及 Telegram 處置。
 type Processor struct {
 	detector   Detector
 	updates    UpdateStore
@@ -23,10 +24,12 @@ type Processor struct {
 	now        func() time.Time
 }
 
+// NewProcessor 組裝用例並複製雜湊金鑰，避免呼叫端修改敏感資料。
 func NewProcessor(detector Detector, updates UpdateStore, exemptions ExemptionStore, behaviors BehaviorStore, violations ViolationStore, telegram Telegram, mode Mode, hashKey []byte) *Processor {
 	return &Processor{detector: detector, updates: updates, exemptions: exemptions, behaviors: behaviors, violations: violations, telegram: telegram, mode: mode, hashKey: append([]byte(nil), hashKey...), now: time.Now}
 }
 
+// Process 以 update_id 收斂重送，且只在完整成功後標記更新完成。
 func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 	claimed, err := p.updates.Claim(ctx, message.UpdateID)
 	if err != nil {
@@ -36,6 +39,7 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 		return nil
 	}
 	completed := false
+	// 失敗時釋放 processing 占用，讓 Telegram 重送可安全接續處理。
 	defer func() {
 		if !completed {
 			_ = p.updates.Release(context.WithoutCancel(ctx), message.UpdateID)

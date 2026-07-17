@@ -1,3 +1,4 @@
+// Package application 協調偵測、豁免、違規與 Telegram 處置用例。
 package application
 
 import (
@@ -7,14 +8,17 @@ import (
 	"time"
 )
 
+// TrustedMembers 查詢每個群組明確設定的可信任成員。
 type TrustedMembers interface {
 	IsExempt(ctx context.Context, chatID, userID int64) (bool, string, error)
 }
 
+// AdminProvider 從 Telegram 取得群組管理員清單。
 type AdminProvider interface {
 	AdminIDs(ctx context.Context, chatID int64) ([]int64, error)
 }
 
+// CachedExemptions 合併可信任名單與短期快取的 Telegram 管理員資料。
 type CachedExemptions struct {
 	trusted TrustedMembers
 	admins  AdminProvider
@@ -29,6 +33,7 @@ type adminEntry struct {
 	ids     map[int64]struct{}
 }
 
+// NewCachedExemptions 建立具有有限快取期限的豁免查詢器。
 func NewCachedExemptions(trusted TrustedMembers, admins AdminProvider, ttl time.Duration) (*CachedExemptions, error) {
 	if trusted == nil || admins == nil || ttl <= 0 {
 		return nil, fmt.Errorf("trusted store, admin provider and positive ttl are required")
@@ -36,6 +41,7 @@ func NewCachedExemptions(trusted TrustedMembers, admins AdminProvider, ttl time.
 	return &CachedExemptions{trusted: trusted, admins: admins, ttl: ttl, now: time.Now, cache: make(map[int64]adminEntry)}, nil
 }
 
+// IsExempt 優先查可信任名單，再查 Telegram 管理員身分。
 func (c *CachedExemptions) IsExempt(ctx context.Context, chatID, userID int64) (bool, string, error) {
 	trusted, reason, err := c.trusted.IsExempt(ctx, chatID, userID)
 	if err != nil || trusted {
