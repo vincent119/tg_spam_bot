@@ -45,6 +45,11 @@ func TestValidate(t *testing.T) {
 		{name: "zero allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{0} }, wantErr: true},
 		{name: "duplicate allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{-1001, -1001} }, wantErr: true},
 		{name: "short hash key", mutate: func(c *Config) { c.Security.ContentHashKey = "short" }, wantErr: true},
+		{name: "enabled auto replies missing rules file", mutate: func(c *Config) { c.AutoReplies.Enabled = true }, wantErr: true},
+		{name: "enabled auto replies with rules file", mutate: func(c *Config) {
+			c.AutoReplies.Enabled = true
+			c.AutoReplies.RulesFile = "configs/auto_replies.yaml"
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -89,6 +94,9 @@ redis:
   addr: localhost:6379
 rules:
   dir: configs/rules
+auto_replies:
+  enabled: true
+  rules_file: configs/auto_replies.yaml
 `)
 	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		t.Fatalf("建立測試設定檔失敗：%v", err)
@@ -109,5 +117,8 @@ rules:
 	}
 	if len(cfg.Telegram.AllowedChatIDs) != 2 || cfg.Telegram.AllowedChatIDs[0] != -1001234567890 {
 		t.Fatalf("未正確載入 Telegram 允許群組：%+v", cfg.Telegram.AllowedChatIDs)
+	}
+	if !cfg.AutoReplies.Enabled || cfg.AutoReplies.RulesFile != "configs/auto_replies.yaml" {
+		t.Fatalf("未正確載入自動回覆設定：%+v", cfg.AutoReplies)
 	}
 }

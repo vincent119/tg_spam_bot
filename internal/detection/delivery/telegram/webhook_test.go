@@ -10,12 +10,19 @@ import (
 	"github.com/vincent119/zlogger"
 
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
-type processorFunc func(context.Context, domain.Message) error
+type processorFunc func(context.Context, domain.Message) (detectionapp.ProcessResult, error)
 
-func (f processorFunc) Process(ctx context.Context, message domain.Message) error {
+func (f processorFunc) Process(ctx context.Context, message domain.Message) (detectionapp.ProcessResult, error) {
+	return f(ctx, message)
+}
+
+type autoReplyProcessorFunc func(context.Context, domain.Message) error
+
+func (f autoReplyProcessorFunc) Process(ctx context.Context, message domain.Message) error {
 	return f(ctx, message)
 }
 
@@ -28,9 +35,9 @@ func (f commandProcessorFunc) Handle(ctx context.Context, command commanddomain.
 func TestWebhook(t *testing.T) {
 	t.Parallel()
 	called := false
-	h, err := NewWebhook("secret", 1024, processorFunc(func(_ context.Context, m domain.Message) error {
+	h, err := NewWebhook("secret", 1024, processorFunc(func(_ context.Context, m domain.Message) (detectionapp.ProcessResult, error) {
 		called = m.Text == "hello"
-		return nil
+		return detectionapp.ProcessResult{}, nil
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +72,9 @@ func TestWebhook(t *testing.T) {
 
 func TestWebhookConfigurationValidation(t *testing.T) {
 	t.Parallel()
-	processor := processorFunc(func(context.Context, domain.Message) error { return nil })
+	processor := processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+		return detectionapp.ProcessResult{}, nil
+	})
 	tests := []struct {
 		name string
 		new  func() (*Webhook, error)
@@ -92,9 +101,9 @@ func TestWebhookAllowedChatIDs(t *testing.T) {
 	t.Parallel()
 
 	processed := 0
-	h, err := NewWebhook("secret", 1024, processorFunc(func(_ context.Context, _ domain.Message) error {
+	h, err := NewWebhook("secret", 1024, processorFunc(func(_ context.Context, _ domain.Message) (detectionapp.ProcessResult, error) {
 		processed++
-		return nil
+		return detectionapp.ProcessResult{}, nil
 	}), WithAllowedChatIDs([]int64{-1001}))
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +141,10 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 	h, err := NewWebhook(
 		"secret",
 		2048,
-		processorFunc(func(context.Context, domain.Message) error { messages++; return nil }),
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			messages++
+			return detectionapp.ProcessResult{}, nil
+		}),
 		WithAllowedChatIDs([]int64{-1001}),
 		WithCommandProcessor(commandProcessorFunc(func(ctx context.Context, command commanddomain.Command) error {
 			commands++
@@ -155,6 +167,74 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusNoContent || commands != 1 || messages != 0 {
 		t.Fatalf("status=%d commands=%d messages=%d", res.Code, commands, messages)
+	}
+}
+
+func TestWebhookAutoReplyAfterNonSpam(t *testing.T) {
+	t.Parallel()
+	autoReplies := 0
+	h, err := NewWebhook(
+		"secret",
+		2048,
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			return detectionapp.ProcessResult{Spam: false}, nil
+		}),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithAutoReplyProcessor(autoReplyProcessorFunc(func(_ context.Context, message domain.Message) error {
+			autoReplies++
+			if message.Text != "下載頁在哪" {
+				t.Fatalf("auto reply message text = %q", message.Text)
+			}
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"update_id":12,"message":{"message_id":2,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"下載頁在哪"}}`
+	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+	req.Header.Set(secretHeader, "secret")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || autoReplies != 1 {
+		t.Fatalf("status=%d autoReplies=%d", res.Code, autoReplies)
+	}
+}
+
+func TestWebhookSkipsAutoReplyForSpamAndCommands(t *testing.T) {
+	t.Parallel()
+	autoReplies := 0
+	h, err := NewWebhook(
+		"secret",
+		2048,
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			return detectionapp.ProcessResult{Spam: true}, nil
+		}),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithCommandProcessor(commandProcessorFunc(func(context.Context, commanddomain.Command) error { return nil }), "liyu_spam_bot"),
+		WithAutoReplyProcessor(autoReplyProcessorFunc(func(context.Context, domain.Message) error {
+			autoReplies++
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{
+		`{"update_id":13,"message":{"message_id":2,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"下載 app 賺錢"}}`,
+		`{"update_id":14,"message":{"message_id":3,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"/ping","entities":[{"type":"bot_command","offset":0,"length":5}]}}`,
+		`{"update_id":15,"message":{"message_id":4,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"/ping@other_bot","entities":[{"type":"bot_command","offset":0,"length":15}]}}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+		req.Header.Set(secretHeader, "secret")
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusNoContent {
+			t.Fatalf("status=%d body=%s", res.Code, body)
+		}
+	}
+	if autoReplies != 0 {
+		t.Fatalf("autoReplies=%d，預期 0", autoReplies)
 	}
 }
 

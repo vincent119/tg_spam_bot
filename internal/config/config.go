@@ -115,6 +115,13 @@ type Config struct {
 		// Dir 是啟動時編譯為不可變規則快照的目錄。
 		Dir string `mapstructure:"dir"`
 	} `mapstructure:"rules"`
+	// AutoReplies 控制固定問答自動回覆規則。
+	AutoReplies struct {
+		// Enabled 決定是否載入並執行自動回覆規則。
+		Enabled bool `mapstructure:"enabled"`
+		// RulesFile 是獨立自動回覆 YAML 規則檔路徑。
+		RulesFile string `mapstructure:"rules_file"`
+	} `mapstructure:"auto_replies"`
 }
 
 // DBEndpoint 描述一個可供資料庫連線使用的節點。
@@ -189,6 +196,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("db.tls.mode", "verify-full")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("rules.dir", "configs/rules")
+	v.SetDefault("auto_replies.enabled", false)
 }
 
 func envBindings() map[string]string {
@@ -204,6 +212,7 @@ func envBindings() map[string]string {
 		"redis.addr":     "REDIS_ADDR",
 		"redis.username": "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
 		"security.content_hash_key": "CONTENT_HASH_KEY", "rules.dir": "RULES_DIR",
+		"auto_replies.enabled": "AUTO_REPLIES_ENABLED", "auto_replies.rules_file": "AUTO_REPLIES_RULES_FILE",
 	}
 }
 
@@ -305,6 +314,9 @@ func (c Config) Validate() error {
 	}
 	if c.Rules.Dir == "" {
 		errs = append(errs, errors.New("rules.dir: required"))
+	}
+	if c.AutoReplies.Enabled && strings.TrimSpace(c.AutoReplies.RulesFile) == "" {
+		errs = append(errs, errors.New("auto_replies.rules_file: required when auto replies are enabled"))
 	}
 	return errors.Join(errs...)
 }

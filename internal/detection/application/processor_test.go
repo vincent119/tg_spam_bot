@@ -44,7 +44,7 @@ func TestProcessorModes(t *testing.T) {
 			store := memory.NewStore(time.Minute, 100)
 			telegram := &telegramSpy{}
 			processor := application.NewProcessor(detectorStub{result}, store, store, store, store, telegram, tt.mode, []byte("01234567890123456789012345678901"))
-			if err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"}); err != nil {
+			if _, err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"}); err != nil {
 				t.Fatal(err)
 			}
 			if len(telegram.actions) != tt.want {
@@ -60,7 +60,7 @@ func TestProcessorReturnsPartialActionFailure(t *testing.T) {
 	telegram := &telegramSpy{failOn: "delete"}
 	result := domain.Result{Spam: true, Severity: domain.SeverityNormal, Action: domain.ActionProgressive, CategoryID: "ad", RuleVersion: "v1"}
 	processor := application.NewProcessor(detectorStub{result}, store, store, store, store, telegram, application.ModeEnforce, []byte("01234567890123456789012345678901"))
-	err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"})
+	_, err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"})
 	if err == nil {
 		t.Fatal("expected action failure")
 	}
@@ -88,11 +88,13 @@ func TestProcessorCriticalAndDuplicate(t *testing.T) {
 	result := domain.Result{Spam: true, Severity: domain.SeverityCritical, Action: domain.ActionBan, CategoryID: "counterfeit", RuleVersion: "v1"}
 	processor := application.NewProcessor(detectorStub{result}, store, store, store, store, telegram, application.ModeEnforce, []byte("01234567890123456789012345678901"))
 	message := domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "假鈔出售"}
-	if err := processor.Process(context.Background(), message); err != nil {
+	if _, err := processor.Process(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if err := processor.Process(context.Background(), message); err != nil {
+	if result, err := processor.Process(context.Background(), message); err != nil {
 		t.Fatal(err)
+	} else if !result.Duplicate {
+		t.Fatalf("第二次處理應標示 duplicate：%+v", result)
 	}
 	if len(telegram.actions) != 2 || telegram.actions[0] != "delete" || telegram.actions[1] != "ban" {
 		t.Fatalf("actions = %v", telegram.actions)
@@ -106,8 +108,10 @@ func TestProcessorExemption(t *testing.T) {
 	telegram := &telegramSpy{}
 	result := domain.Result{Spam: true, Severity: domain.SeverityCritical, Action: domain.ActionBan}
 	processor := application.NewProcessor(detectorStub{result}, store, store, store, store, telegram, application.ModeEnforce, []byte("01234567890123456789012345678901"))
-	if err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "spam"}); err != nil {
+	if result, err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "spam"}); err != nil {
 		t.Fatal(err)
+	} else if !result.Exempt {
+		t.Fatalf("可信任成員應標示 exempt：%+v", result)
 	}
 	if len(telegram.actions) != 0 {
 		t.Fatalf("trusted member actions = %v", telegram.actions)

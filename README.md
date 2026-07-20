@@ -236,6 +236,25 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 
 群組中 Telegram 可能送出 `/command@liyu_spam_bot`，服務會自動驗證 suffix；其他 Bot 的指令會靜默忽略。具副作用指令每次都向 Telegram 即時確認操作者仍是管理員，且禁止處置管理員、Bot 與可信任成員。
 
+實際在群組輸入時，可使用 `/ping` 或 `/ping@liyu_spam_bot`。若同一群組有多個 Bot，建議使用帶 username 的格式，例如：
+
+```text
+/ping@liyu_spam_bot
+```
+
+需要指定目標的指令必須「回覆」目標訊息後再送出指令。以刪除垃圾訊息為例：
+
+1. 在 Telegram 長按或右鍵點選要刪除的垃圾訊息。
+2. 選擇「回覆」。
+3. 輸入 `/del` 或 `/del@liyu_spam_bot`。
+4. 送出指令。
+
+`/del` 不接受把垃圾訊息內容接在指令後方，以下寫法不會刪除該訊息：
+
+```text
+/del@liyu_spam_bot 這裡放垃圾訊息內容
+```
+
 人工 `/warn` 會計入同群組成員最近 30 天的違規總數，影響後續自動違規階梯，但不會在該指令當下自動升級為禁言或封鎖。`/clearwarn` 不刪除資料，只保存失效時間、操作者與原因。人工指令代表管理員明確意圖，因此不受 `observe`、`delete-only`、`enforce` 自動偵測模式限制。
 
 ### 設定 BotFather 指令清單
@@ -257,6 +276,41 @@ unban - 解除成員封鎖
 ```
 
 BotFather 清單只影響 Telegram 選單顯示，真正權限仍由服務端即時驗證。
+
+## 自動回覆規則
+
+自動回覆用來處理固定問答，例如成員詢問「下載頁在哪」或「app 去哪裡下載」。首版只做明確關鍵字比對，不使用 AI 語意問答，也不支援 Telegram 指令動態新增規則。
+
+主設定只放開關與獨立規則檔路徑：
+
+```yaml
+auto_replies:
+  enabled: true
+  rules_file: configs/auto_replies.yaml
+```
+
+規則檔可由範例複製：
+
+```sh
+cp configs/auto_replies.sample.yaml configs/auto_replies.yaml
+```
+
+規則格式：
+
+```yaml
+version: "2026-07-20.1"
+rules:
+  - id: download_page
+    enabled: true
+    keywords:
+      - 下載頁
+      - app 去哪裡下載
+      - app 在哪下載
+      - 下載 app
+    reply: "下載頁在：https://example.com/download"
+```
+
+同一則訊息命中多條規則時，只回覆設定順序最前面的啟用規則。系統會先跑垃圾訊息偵測；若訊息被判定為垃圾或已執行自動處置，不會再觸發自動回覆。
 
 ## 應用設定
 

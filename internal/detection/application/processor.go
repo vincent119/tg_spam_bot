@@ -25,16 +25,23 @@ type Processor struct {
 	now        func() time.Time
 }
 
+// ProcessResult 描述一般訊息經垃圾偵測流程後是否仍可接續其他非垃圾流程。
+type ProcessResult struct {
+	Duplicate bool
+	Exempt    bool
+	Spam      bool
+}
+
 // NewProcessor 組裝用例並複製雜湊金鑰，避免呼叫端修改敏感資料。
 func NewProcessor(detector Detector, updates UpdateStore, exemptions ExemptionStore, behaviors BehaviorStore, violations ViolationStore, telegram Telegram, mode Mode, hashKey []byte) *Processor {
 	return &Processor{detector: detector, updates: updates, exemptions: exemptions, behaviors: behaviors, violations: violations, telegram: telegram, mode: mode, hashKey: append([]byte(nil), hashKey...), now: time.Now}
 }
 
 // Process 以 update_id 收斂重送，且只在完整成功後標記更新完成。
-func (p *Processor) Process(ctx context.Context, message domain.Message) error {
+func (p *Processor) Process(ctx context.Context, message domain.Message) (ProcessResult, error) {
 	claimed, err := p.updates.Claim(ctx, message.UpdateID)
 	if err != nil {
-		return fmt.Errorf("claim update: %w", err)
+		return ProcessResult{}, fmt.Errorf("claim update: %w", err)
 	}
 	if !claimed {
 		zlogger.DebugContext(ctx, "Telegram 更新已處理，略過重複請求",
@@ -42,7 +49,7 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 			zlogger.Int64("update_id", message.UpdateID),
 			zlogger.Int64("chat_id", message.ChatID),
 		)
-		return nil
+		return ProcessResult{Duplicate: true}, nil
 	}
 	completed := false
 	// 失敗時釋放 processing 占用，讓 Telegram 重送可安全接續處理。
@@ -54,7 +61,7 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 
 	exempt, _, err := p.exemptions.IsExempt(ctx, message.ChatID, message.UserID)
 	if err != nil {
-		return fmt.Errorf("check exemption: %w", err)
+		return ProcessResult{}, fmt.Errorf("check exemption: %w", err)
 	}
 	if exempt {
 		zlogger.DebugContext(ctx, "成員命中豁免規則，略過垃圾訊息偵測",
@@ -64,12 +71,12 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 			zlogger.Int64("user_id", message.UserID),
 		)
 		completed = true
-		return p.updates.Complete(ctx, message.UpdateID)
+		return ProcessResult{Exempt: true}, p.updates.Complete(ctx, message.UpdateID)
 	}
 	fingerprint := p.fingerprint(message.Text)
 	signals, err := p.behaviors.Observe(ctx, message, fingerprint)
 	if err != nil {
-		return fmt.Errorf("observe behavior: %w", err)
+		return ProcessResult{}, fmt.Errorf("observe behavior: %w", err)
 	}
 	result := p.detector.Detect(message, signals...)
 	event := Event{ID: fmt.Sprintf("tg:%d", message.UpdateID), Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, Mode: p.mode, CreatedAt: p.now().UTC()}
@@ -77,22 +84,22 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 
 	if !result.Spam || p.mode == ModeObserve {
 		if err := p.violations.RecordDetection(ctx, event); err != nil {
-			return fmt.Errorf("record detection: %w", err)
+			return ProcessResult{}, fmt.Errorf("record detection: %w", err)
 		}
 	} else {
 		_, actions, err := p.violations.Create(ctx, event)
 		if err != nil {
-			return fmt.Errorf("create violation: %w", err)
+			return ProcessResult{}, fmt.Errorf("create violation: %w", err)
 		}
 		if err := p.execute(ctx, event, actions); err != nil {
-			return err
+			return ProcessResult{}, err
 		}
 	}
 	if err := p.updates.Complete(ctx, message.UpdateID); err != nil {
-		return fmt.Errorf("complete update: %w", err)
+		return ProcessResult{}, fmt.Errorf("complete update: %w", err)
 	}
 	completed = true
-	return nil
+	return ProcessResult{Spam: result.Spam}, nil
 }
 
 func (p *Processor) execute(ctx context.Context, event Event, actions []EnforcementAction) error {

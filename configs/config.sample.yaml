@@ -64,3 +64,8 @@ security:
 # 啟動時載入並編譯規則，訊息熱路徑不查詢資料庫。
 rules:
   dir: configs/rules
+
+# 固定問答自動回覆；規則內容放在獨立 YAML，避免主設定混入大量業務文案。
+auto_replies:
+  enabled: false
+  rules_file: configs/auto_replies.yaml

@@ -14,6 +14,7 @@ import (
 	"github.com/vincent119/zlogger"
 
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
@@ -21,6 +22,11 @@ const secretHeader = "X-Telegram-Bot-Api-Secret-Token" //nolint:gosec // 這是 
 
 // MessageProcessor 定義 Webhook 解析完成後的 application 邊界。
 type MessageProcessor interface {
+	Process(ctx context.Context, message domain.Message) (detectionapp.ProcessResult, error)
+}
+
+// AutoReplyProcessor 定義非垃圾訊息後可選的固定問答回覆邊界。
+type AutoReplyProcessor interface {
 	Process(ctx context.Context, message domain.Message) error
 }
 
@@ -34,9 +40,21 @@ type Webhook struct {
 	secret         [sha256.Size]byte
 	maxBody        int64
 	process        MessageProcessor
+	autoReplies    AutoReplyProcessor
 	commands       CommandProcessor
 	botUsername    string
 	allowedChatIDs map[int64]struct{}
+}
+
+// WithAutoReplyProcessor 在非垃圾的一般訊息後執行固定問答自動回覆。
+func WithAutoReplyProcessor(processor AutoReplyProcessor) Option {
+	return func(webhook *Webhook) error {
+		if processor == nil {
+			return errors.New("auto reply processor is required")
+		}
+		webhook.autoReplies = processor
+		return nil
+	}
 }
 
 // WithCommandProcessor 在一般垃圾訊息偵測前分流 Telegram bot command。
@@ -167,7 +185,8 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.process.Process(ctx, message); err != nil {
+	result, err := h.process.Process(ctx, message)
+	if err != nil {
 		zlogger.ErrorContext(ctx, "處理 Telegram 訊息失敗",
 			zlogger.String("subsystem", "webhook"),
 			zlogger.Int64("update_id", update.UpdateID),
@@ -176,6 +195,18 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 		http.Error(w, "temporary processing failure", http.StatusServiceUnavailable)
 		return
+	}
+	if h.autoReplies != nil && !result.Spam {
+		if err := h.autoReplies.Process(ctx, message); err != nil {
+			zlogger.ErrorContext(ctx, "處理 Telegram 自動回覆失敗",
+				zlogger.String("subsystem", "webhook"),
+				zlogger.Int64("update_id", update.UpdateID),
+				zlogger.Int64("chat_id", update.Message.Chat.ID),
+				zlogger.Err(err),
+			)
+			http.Error(w, "temporary auto reply failure", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

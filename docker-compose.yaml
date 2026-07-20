@@ -52,8 +52,7 @@ services:
       timeout: 3s
       retries: 3
     volumes:
-      - ./configs/config.yaml:/app/configs/config.yaml:ro
-      - ./configs/rules:/app/configs/rules:ro
+      - ./configs:/app/configs:ro
     restart: unless-stopped
     stop_grace_period: 40s
     networks: [backend]

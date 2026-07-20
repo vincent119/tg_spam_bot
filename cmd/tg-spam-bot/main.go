@@ -13,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	redislib "github.com/redis/go-redis/v9"
+	autoreplyapp "github.com/vincent119/tg_spam_bot/internal/autoreply/application"
+	autoreplyrules "github.com/vincent119/tg_spam_bot/internal/autoreply/rules"
 	commandapp "github.com/vincent119/tg_spam_bot/internal/command/application"
 	commandredis "github.com/vincent119/tg_spam_bot/internal/command/infra/redis"
 	"github.com/vincent119/tg_spam_bot/internal/config"
@@ -58,7 +60,8 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	detector, err := domain.NewDetector(ruleSet, domain.NewNormalizer(domain.OpenCCConverter{}, 8192), nil, nil)
+	normalizer := domain.NewNormalizer(domain.OpenCCConverter{}, 8192)
+	detector, err := domain.NewDetector(ruleSet, normalizer, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -129,13 +132,25 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	webhook, err := delivery.NewWebhook(
-		cfg.Telegram.WebhookSecret,
-		cfg.App.MaxBodyBytes,
-		processor,
+	var autoReplyProcessor *autoreplyapp.Processor
+	if cfg.AutoReplies.Enabled {
+		autoReplyRules, err := autoreplyrules.LoadFile(cfg.AutoReplies.RulesFile)
+		if err != nil {
+			return err
+		}
+		autoReplyProcessor, err = autoreplyapp.NewProcessor(autoreplyapp.NewMatcher(autoReplyRules, normalizer), postgresStore, telegram)
+		if err != nil {
+			return err
+		}
+	}
+	webhookOptions := []delivery.Option{
 		delivery.WithAllowedChatIDs(cfg.Telegram.AllowedChatIDs),
 		delivery.WithCommandProcessor(commandHandler, identity.Username),
-	)
+	}
+	if autoReplyProcessor != nil {
+		webhookOptions = append(webhookOptions, delivery.WithAutoReplyProcessor(autoReplyProcessor))
+	}
+	webhook, err := delivery.NewWebhook(cfg.Telegram.WebhookSecret, cfg.App.MaxBodyBytes, processor, webhookOptions...)
 	if err != nil {
 		return err
 	}

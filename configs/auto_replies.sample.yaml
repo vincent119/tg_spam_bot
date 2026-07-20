@@ -1,0 +1,17 @@
+version: "2026-07-20.1"
+rules:
+  - id: download_page
+    enabled: true
+    keywords:
+      - 下載頁
+      - app 去哪裡下載
+      - app 在哪下載
+      - 下載 app
+    reply: "下載頁在：https://example.com/download"
+
+  - id: support
+    enabled: true
+    keywords:
+      - 客服
+      - 聯絡客服
+    reply: "客服資訊：https://example.com/support"

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	autoreplyapp "github.com/vincent119/tg_spam_bot/internal/autoreply/application"
 	commandapp "github.com/vincent119/tg_spam_bot/internal/command/application"
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/application"
@@ -93,6 +94,21 @@ type commandExecution struct {
 	CompletedAt     *time.Time `gorm:"comment:完成 UTC 時間"`
 }
 
+type autoReplyExecution struct {
+	ID          uint64     `gorm:"primaryKey;comment:自動回覆流水號"`
+	ChatID      int64      `gorm:"uniqueIndex:idx_auto_reply_update;not null;comment:Telegram 聊天識別碼"`
+	UpdateID    int64      `gorm:"uniqueIndex:idx_auto_reply_update;not null;comment:Telegram 更新識別碼"`
+	MessageID   int64      `gorm:"not null;comment:觸發自動回覆的訊息識別碼"`
+	UserID      int64      `gorm:"index;not null;comment:觸發自動回覆的成員識別碼"`
+	RuleID      string     `gorm:"size:100;index;not null;comment:命中的自動回覆規則識別碼"`
+	Status      string     `gorm:"index;not null;comment:執行狀態"`
+	ErrorCode   string     `gorm:"size:64;comment:穩定錯誤類型"`
+	ErrorText   string     `gorm:"size:500;comment:遮罩後錯誤摘要"`
+	Retryable   bool       `gorm:"comment:失敗是否可重試"`
+	CreatedAt   time.Time  `gorm:"not null;comment:建立 UTC 時間"`
+	CompletedAt *time.Time `gorm:"comment:完成 UTC 時間"`
+}
+
 // Store 保存偵測、違規、處置及可信任成員資料。
 type Store struct{ db *gorm.DB }
 
@@ -109,10 +125,10 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("gorm db is required")
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&processedUpdate{}, &detectionEvent{}, &violation{}, &enforcementAction{}, &trustedMember{}, &commandExecution{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&processedUpdate{}, &detectionEvent{}, &violation{}, &enforcementAction{}, &trustedMember{}, &commandExecution{}, &autoReplyExecution{}); err != nil {
 		return fmt.Errorf("auto migrate detection schema: %w", err)
 	}
-	comments := map[string]string{"processed_updates": "Telegram 更新冪等紀錄", "detection_events": "垃圾訊息偵測事件", "violations": "成員違規紀錄", "enforcement_actions": "Telegram 處置執行紀錄", "trusted_members": "可信任成員名單", "command_executions": "Telegram 人工管理指令與稽核紀錄"}
+	comments := map[string]string{"processed_updates": "Telegram 更新冪等紀錄", "detection_events": "垃圾訊息偵測事件", "violations": "成員違規紀錄", "enforcement_actions": "Telegram 處置執行紀錄", "trusted_members": "可信任成員名單", "command_executions": "Telegram 人工管理指令與稽核紀錄", "auto_reply_executions": "Telegram 自動回覆執行與稽核紀錄"}
 	for table, comment := range comments {
 		query := fmt.Sprintf("COMMENT ON TABLE %s IS '%s'", table, strings.ReplaceAll(comment, "'", "''"))
 		if err := db.WithContext(ctx).Exec(query).Error; err != nil {
@@ -185,6 +201,54 @@ func (s *Store) Create(ctx context.Context, event application.Event) (count int,
 		return nil
 	})
 	return
+}
+
+// ClaimAutoReply 以群組與 update 唯一鍵原子占用自動回覆副作用。
+func (s *Store) ClaimAutoReply(ctx context.Context, event autoreplyapp.Event) (autoreplyapp.Claim, error) {
+	row := autoReplyExecution{
+		ChatID: event.ChatID, UpdateID: event.UpdateID, MessageID: event.MessageID, UserID: event.UserID,
+		RuleID: truncateRunes(event.RuleID, 100), Status: "processing", CreatedAt: event.CreatedAt,
+	}
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	if result.Error != nil {
+		return autoreplyapp.Claim{}, result.Error
+	}
+	if result.RowsAffected == 1 {
+		return autoreplyapp.Claim{Acquired: true}, nil
+	}
+	var existing autoReplyExecution
+	if err := s.db.WithContext(ctx).Where("chat_id=? AND update_id=?", event.ChatID, event.UpdateID).Take(&existing).Error; err != nil {
+		return autoreplyapp.Claim{}, err
+	}
+	if existing.Status == "failed" && existing.Retryable {
+		update := s.db.WithContext(ctx).Model(&autoReplyExecution{}).
+			Where("chat_id=? AND update_id=? AND status=? AND retryable", event.ChatID, event.UpdateID, "failed").
+			Updates(map[string]any{"status": "processing", "rule_id": truncateRunes(event.RuleID, 100), "error_code": "", "error_text": "", "retryable": false})
+		if update.Error != nil {
+			return autoreplyapp.Claim{}, update.Error
+		}
+		if update.RowsAffected == 1 {
+			return autoreplyapp.Claim{Acquired: true}, nil
+		}
+	}
+	existingResult := &autoreplyapp.Result{Status: existing.Status, ErrorCode: existing.ErrorCode, ErrorText: existing.ErrorText, Retryable: existing.Retryable}
+	return autoreplyapp.Claim{Existing: existingResult}, nil
+}
+
+// CompleteAutoReply 保存自動回覆成功結果，不保存使用者原文。
+func (s *Store) CompleteAutoReply(ctx context.Context, event autoreplyapp.Event) error {
+	now := time.Now().UTC()
+	return s.db.WithContext(ctx).Model(&autoReplyExecution{}).
+		Where("chat_id=? AND update_id=?", event.ChatID, event.UpdateID).
+		Updates(map[string]any{"status": "completed", "completed_at": now}).Error
+}
+
+// FailAutoReply 保存自動回覆失敗摘要與是否可重試。
+func (s *Store) FailAutoReply(ctx context.Context, event autoreplyapp.Event, result autoreplyapp.Result) error {
+	now := time.Now().UTC()
+	return s.db.WithContext(ctx).Model(&autoReplyExecution{}).
+		Where("chat_id=? AND update_id=?", event.ChatID, event.UpdateID).
+		Updates(map[string]any{"status": "failed", "error_code": result.ErrorCode, "error_text": truncateRunes(result.ErrorText, 500), "retryable": result.Retryable, "completed_at": now}).Error
 }
 
 // ClaimCommand 以群組與 update 唯一鍵原子占用管理指令。

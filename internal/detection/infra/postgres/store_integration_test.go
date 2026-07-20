@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	autoreplyapp "github.com/vincent119/tg_spam_bot/internal/autoreply/application"
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/application"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
@@ -46,6 +47,7 @@ func TestStoreIntegration(t *testing.T) {
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&violation{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&detectionEvent{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&commandExecution{}).Error
+		_ = cleanup.Where("chat_id = ?", chatID).Delete(&autoReplyExecution{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&trustedMember{}).Error
 	})
 
@@ -65,6 +67,31 @@ func TestStoreIntegration(t *testing.T) {
 	}
 	if err := store.Release(ctx, seed+501); err != nil {
 		t.Fatal(err)
+	}
+
+	autoReplyEvent := autoreplyapp.Event{ChatID: chatID, UpdateID: seed + 700, MessageID: 700, UserID: userID, RuleID: "download_page", CreatedAt: time.Now().UTC()}
+	autoClaim, err := store.ClaimAutoReply(ctx, autoReplyEvent)
+	if err != nil || !autoClaim.Acquired {
+		t.Fatalf("ClaimAutoReply()=%+v, %v", autoClaim, err)
+	}
+	if err := store.CompleteAutoReply(ctx, autoReplyEvent); err != nil {
+		t.Fatal(err)
+	}
+	autoClaim, err = store.ClaimAutoReply(ctx, autoReplyEvent)
+	if err != nil || autoClaim.Acquired || autoClaim.Existing == nil || autoClaim.Existing.Status != "completed" {
+		t.Fatalf("重複 ClaimAutoReply()=%+v, %v", autoClaim, err)
+	}
+	retryEvent := autoreplyapp.Event{ChatID: chatID, UpdateID: seed + 701, MessageID: 701, UserID: userID, RuleID: "download_page", CreatedAt: time.Now().UTC()}
+	retryClaim, err := store.ClaimAutoReply(ctx, retryEvent)
+	if err != nil || !retryClaim.Acquired {
+		t.Fatalf("retry ClaimAutoReply()=%+v, %v", retryClaim, err)
+	}
+	if err := store.FailAutoReply(ctx, retryEvent, autoreplyapp.Result{Status: "failed", ErrorText: "temporary", Retryable: true}); err != nil {
+		t.Fatal(err)
+	}
+	retryClaim, err = store.ClaimAutoReply(ctx, retryEvent)
+	if err != nil || !retryClaim.Acquired {
+		t.Fatalf("retryable ClaimAutoReply()=%+v, %v", retryClaim, err)
 	}
 
 	if err := db.Create(&trustedMember{ChatID: chatID, UserID: userID, Reason: "integration", Enabled: true, CreatedAt: time.Now().UTC()}).Error; err != nil {

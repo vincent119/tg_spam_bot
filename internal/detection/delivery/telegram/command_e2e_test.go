@@ -11,6 +11,7 @@ import (
 
 	commandapp "github.com/vincent119/tg_spam_bot/internal/command/application"
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
 	delivery "github.com/vincent119/tg_spam_bot/internal/detection/delivery/telegram"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
@@ -85,9 +86,9 @@ func (allowAllLimiter) Allow(context.Context, int64, int64) (bool, error) { retu
 
 type detectionCounter struct{ calls int }
 
-func (p *detectionCounter) Process(context.Context, domain.Message) error {
+func (p *detectionCounter) Process(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
 	p.calls++
-	return nil
+	return detectionapp.ProcessResult{}, nil
 }
 
 func TestWebhookCommandEndToEnd(t *testing.T) {
