@@ -7,6 +7,8 @@ rules:
       - app 去哪裡下載
       - app 在哪下載
       - 下載 app
+      - app 下载
+      - app 安装
     reply: "下載頁在：https://example.com/download"
 
   - id: support
