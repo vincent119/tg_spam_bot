@@ -17,24 +17,55 @@ type Handler struct {
 	store    ExecutionStore
 	limiter  Limiter
 	botID    int64
-	now      func() time.Time
+	clock    Clock
+}
+
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now() }
+
+// Option 調整 Handler 可測試依賴。
+type Option func(*Handler) error
+
+// WithClock 注入可決定性時鐘，生產環境預設使用系統 UTC 時間。
+func WithClock(clock Clock) Option {
+	return func(handler *Handler) error {
+		if clock == nil {
+			return errors.New("clock 不得為空")
+		}
+		handler.clock = clock
+		return nil
+	}
 }
 
 // NewHandler 驗證管理指令的所有必要依賴。
-func NewHandler(telegram Telegram, trusted TrustedMembers, store ExecutionStore, limiter Limiter, botID int64) (*Handler, error) {
+func NewHandler(telegram Telegram, trusted TrustedMembers, store ExecutionStore, limiter Limiter, botID int64, opts ...Option) (*Handler, error) {
 	if telegram == nil || trusted == nil || store == nil || limiter == nil || botID <= 0 {
 		return nil, errors.New("管理指令依賴與 bot ID 不得為空")
 	}
-	return &Handler{telegram: telegram, trusted: trusted, store: store, limiter: limiter, botID: botID, now: time.Now}, nil
+	handler := &Handler{telegram: telegram, trusted: trusted, store: store, limiter: limiter, botID: botID, clock: systemClock{}}
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, errors.New("handler option 不得為空")
+		}
+		if err := opt(handler); err != nil {
+			return nil, fmt.Errorf("設定 command handler：%w", err)
+		}
+	}
+	return handler, nil
 }
 
 // Handle 先以 update ID 收斂重送，再依固定權限矩陣執行一次指令。
 func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
-	claimed, err := h.store.ClaimCommand(ctx, command)
+	claim, err := h.store.ClaimCommand(ctx, command)
 	if err != nil {
 		return fmt.Errorf("占用管理指令：%w", err)
 	}
-	if !claimed {
+	if !claim.Acquired {
+		// Telegram 重送已完成指令時回傳同一安全結果，但不重複執行業務副作用。
+		if claim.Existing != nil && claim.Existing.Message != "" && claim.Existing.Status != "processing" {
+			return h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, claim.Existing.Message)
+		}
 		return nil
 	}
 	definition, known := domain.LookupDefinition(command.Name)
@@ -50,7 +81,7 @@ func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
 			return h.fail(ctx, command, "暫時無法檢查指令頻率", err)
 		}
 		if !allowed {
-			return h.store.CompleteCommand(ctx, command, "rate_limited", "", "")
+			return h.store.CompleteCommand(ctx, command, domain.Result{Status: "rate_limited"})
 		}
 		return h.handlePublic(ctx, command)
 	}
@@ -117,7 +148,7 @@ func (h *Handler) handlePublic(ctx context.Context, command domain.Command) erro
 }
 
 func (h *Handler) handleAdmin(ctx context.Context, command domain.Command) error {
-	now := h.now().UTC()
+	now := h.clock.Now().UTC()
 	targetID := command.Target.ID
 	switch command.Name {
 	case domain.NameWarnings:
@@ -164,7 +195,7 @@ func (h *Handler) handleAdmin(ctx context.Context, command domain.Command) error
 		if _, err := domain.ParseReason(reasonText); err != nil {
 			return h.finishWithReply(ctx, command, "invalid", err.Error(), "")
 		}
-		if err := h.telegram.RestrictMember(ctx, command.ChatID, targetID, now.Add(duration)); err != nil {
+		if err := h.telegram.RestrictMember(ctx, command.ChatID, targetID, now.Add(duration.TimeDuration())); err != nil {
 			return h.fail(ctx, command, "禁言失敗", err)
 		}
 		return h.finishWithReply(ctx, command, "completed", fmt.Sprintf("已禁言使用者 %d，時間 %s。", targetID, durationText), "")
@@ -200,7 +231,7 @@ func (h *Handler) resolveTarget(command *domain.Command, definition domain.Defin
 		if err != nil {
 			return errors.New("用法：/unban <user_id> 或回覆成員訊息")
 		}
-		command.Target = &domain.User{ID: id}
+		command.Target = &domain.Target{ID: id}
 		command.Args = ""
 	}
 	if definition.RequiresReply && (command.Target == nil || command.Target.ID == 0) {
@@ -237,14 +268,32 @@ func (h *Handler) finishWithReply(ctx context.Context, command domain.Command, s
 			return h.fail(ctx, command, "傳送指令回應失敗", err)
 		}
 	}
-	if err := h.store.CompleteCommand(ctx, command, status, text, errorText); err != nil {
+	if err := h.store.CompleteCommand(ctx, command, domain.Result{Status: status, Message: text, ErrorCode: errorText}); err != nil {
 		return fmt.Errorf("完成管理指令：%w", err)
 	}
 	return nil
 }
 
 func (h *Handler) fail(ctx context.Context, command domain.Command, public string, cause error) error {
-	_ = h.store.CompleteCommand(ctx, command, "failed", "", public)
-	_ = h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, public+"，請稍後再試。")
+	code, retryable := classifyError(cause)
+	message := public
+	if retryable {
+		message += "，請稍後再試。"
+	}
+	_ = h.store.CompleteCommand(ctx, command, domain.Result{Status: "failed", Message: message, ErrorCode: code, Retryable: retryable})
+	_ = h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, message)
 	return fmt.Errorf("%s：%w", public, cause)
+}
+
+type classifiedError interface {
+	ErrorCode() string
+	IsRetryable() bool
+}
+
+func classifyError(err error) (string, bool) {
+	var classified classifiedError
+	if errors.As(err, &classified) {
+		return classified.ErrorCode(), classified.IsRetryable()
+	}
+	return string(domain.ErrorTemporary), true
 }

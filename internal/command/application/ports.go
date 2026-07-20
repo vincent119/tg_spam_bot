@@ -33,11 +33,16 @@ type WarningSummary struct {
 
 // ExecutionStore 保存指令冪等、警告調整及稽核狀態。
 type ExecutionStore interface {
-	ClaimCommand(ctx context.Context, command domain.Command) (bool, error)
-	CompleteCommand(ctx context.Context, command domain.Command, status, result, errorText string) error
+	ClaimCommand(ctx context.Context, command domain.Command) (domain.Claim, error)
+	CompleteCommand(ctx context.Context, command domain.Command, result domain.Result) error
 	Warnings(ctx context.Context, chatID, userID int64, since time.Time) (WarningSummary, error)
-	AddManualWarning(ctx context.Context, command domain.Command, reason string, occurredAt time.Time) (WarningSummary, error)
-	ClearWarnings(ctx context.Context, command domain.Command, reason string, invalidatedAt time.Time) (int64, error)
+	AddManualWarning(ctx context.Context, command domain.Command, reason domain.Reason, occurredAt time.Time) (WarningSummary, error)
+	ClearWarnings(ctx context.Context, command domain.Command, reason domain.Reason, invalidatedAt time.Time) (int64, error)
+}
+
+// Clock 讓指令的 UTC 到期時間與 30 天視窗可決定性測試。
+type Clock interface {
+	Now() time.Time
 }
 
 // Limiter 限制公開指令在單一群組及成員的短期使用次數。

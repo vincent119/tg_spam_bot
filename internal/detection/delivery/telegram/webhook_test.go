@@ -61,6 +61,31 @@ func TestWebhook(t *testing.T) {
 	}
 }
 
+func TestWebhookConfigurationValidation(t *testing.T) {
+	t.Parallel()
+	processor := processorFunc(func(context.Context, domain.Message) error { return nil })
+	tests := []struct {
+		name string
+		new  func() (*Webhook, error)
+	}{
+		{name: "空 secret", new: func() (*Webhook, error) { return NewWebhook("", 1, processor) }},
+		{name: "空 processor", new: func() (*Webhook, error) { return NewWebhook("secret", 1, nil) }},
+		{name: "nil option", new: func() (*Webhook, error) { return NewWebhook("secret", 1, processor, nil) }},
+		{name: "空 allowlist", new: func() (*Webhook, error) { return NewWebhook("secret", 1, processor, WithAllowedChatIDs(nil)) }},
+		{name: "重複 chat", new: func() (*Webhook, error) {
+			return NewWebhook("secret", 1, processor, WithAllowedChatIDs([]int64{-1, -1}))
+		}},
+		{name: "空 command processor", new: func() (*Webhook, error) { return NewWebhook("secret", 1, processor, WithCommandProcessor(nil, "bot")) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := tt.new(); err == nil {
+				t.Fatal("無效設定應失敗")
+			}
+		})
+	}
+}
+
 func TestWebhookAllowedChatIDs(t *testing.T) {
 	t.Parallel()
 

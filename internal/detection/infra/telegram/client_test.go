@@ -2,10 +2,13 @@ package telegram
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientDeleteMessage(t *testing.T) {
@@ -48,16 +51,29 @@ func TestClientMasksTokenFromError(t *testing.T) {
 
 func TestClientServerAndRateLimitErrors(t *testing.T) {
 	t.Parallel()
-	for _, status := range []int{http.StatusInternalServerError, http.StatusTooManyRequests} {
+	for _, status := range []int{http.StatusInternalServerError, http.StatusTooManyRequests, http.StatusForbidden} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(status)
-				_, _ = w.Write([]byte(`{"ok":false,"error_code":` + http.StatusText(status) + `,"description":"failed"}`))
+				_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":%d,"description":"failed"}`, status)
 			}))
 			defer server.Close()
 			client, _ := NewClient(server.URL, "token", server.Client())
-			if err := client.DeleteMessage(context.Background(), 1, 2); err == nil {
+			err := client.DeleteMessage(context.Background(), 1, 2)
+			if err == nil {
 				t.Fatal("expected error")
+			}
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("錯誤型別 = %T，預期 *APIError", err)
+			}
+			wantRetryable := status == http.StatusInternalServerError || status == http.StatusTooManyRequests
+			if apiErr.IsRetryable() != wantRetryable {
+				t.Fatalf("IsRetryable() = %v，預期 %v", apiErr.IsRetryable(), wantRetryable)
+			}
+			if status == http.StatusForbidden && apiErr.ErrorCode() != "permission_denied" {
+				t.Fatalf("ErrorCode() = %q", apiErr.ErrorCode())
 			}
 		})
 	}
@@ -75,6 +91,8 @@ func TestClientCommandMethods(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"status":"administrator"}}`))
 		case "/bottoken/getChat":
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"permissions":{"can_send_messages":true}}}`))
+		case "/bottoken/getChatAdministrators":
+			_, _ = w.Write([]byte(`{"ok":true,"result":[{"user":{"id":7}},{"user":{"id":8}}]}`))
 		default:
 			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 		}
@@ -93,16 +111,34 @@ func TestClientCommandMethods(t *testing.T) {
 		t.Fatalf("IsAdmin() = %v, %v", admin, err)
 	}
 	for _, call := range []func() error{
+		func() error { return client.SendWarning(t.Context(), -1001, 3, "警告") },
 		func() error { return client.SendMessage(t.Context(), -1001, 2, "完成") },
+		func() error { return client.RestrictMember(t.Context(), -1001, 3, time.Now().Add(time.Minute)) },
 		func() error { return client.UnrestrictMember(t.Context(), -1001, 3) },
+		func() error { return client.BanMember(t.Context(), -1001, 3) },
 		func() error { return client.UnbanMember(t.Context(), -1001, 3) },
 	} {
 		if err := call(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(paths) != 6 {
-		t.Fatalf("API 呼叫數 = %d，預期 6：%v", len(paths), paths)
+	admins, err := client.AdminIDs(t.Context(), -1001)
+	if err != nil || len(admins) != 2 || admins[0] != 7 {
+		t.Fatalf("AdminIDs()=%v, %v", admins, err)
+	}
+	if len(paths) != 10 {
+		t.Fatalf("API 呼叫數 = %d，預期 10：%v", len(paths), paths)
+	}
+}
+
+func TestNewClientValidation(t *testing.T) {
+	t.Parallel()
+	if _, err := NewClient("https://api.telegram.org", "", nil); err == nil {
+		t.Fatal("空 Token 應失敗")
+	}
+	client, err := NewClient("https://api.telegram.org/", "token", nil)
+	if err != nil || client.baseURL != "https://api.telegram.org" || client.http == nil {
+		t.Fatalf("client=%+v err=%v", client, err)
 	}
 }
 
@@ -116,5 +152,19 @@ func TestClientMasksTokenFromDescription(t *testing.T) {
 	err := client.UnbanMember(t.Context(), -1001, 3)
 	if err == nil || strings.Contains(err.Error(), "sensitive-token") {
 		t.Fatalf("錯誤未遮蔽：%v", err)
+	}
+}
+
+func TestClientMasksURLCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"upstream https://admin:secret@example.com failed"}`))
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.URL, "token", server.Client())
+	err := client.DeleteMessage(t.Context(), -1001, 3)
+	if err == nil || strings.Contains(err.Error(), "admin:secret") {
+		t.Fatalf("URL credential 未遮蔽：%v", err)
 	}
 }

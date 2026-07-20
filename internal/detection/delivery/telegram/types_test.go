@@ -34,3 +34,27 @@ func TestDomainMessageExtractsReferenceText(t *testing.T) {
 		})
 	}
 }
+
+func TestDomainMessageCaptionAndInvalidUpdates(t *testing.T) {
+	t.Parallel()
+
+	update := Update{UpdateID: 1, Message: &Message{
+		MessageID: 2, Date: 1, Chat: Chat{ID: -1001, Type: "supergroup"}, From: &User{ID: 4},
+		Caption: "媒體說明", CaptionEntities: []MessageEntity{{Type: "mention"}},
+	}}
+	message, ok := update.DomainMessage()
+	if !ok || message.Text != "媒體說明" || len(message.Entities) != 1 {
+		t.Fatalf("message=%+v ok=%v", message, ok)
+	}
+
+	invalid := []Update{
+		{},
+		{UpdateID: 1, Message: &Message{MessageID: 2, Chat: Chat{ID: -1001, Type: "supergroup"}, From: &User{ID: 4, IsBot: true}, Text: "hello"}},
+		{UpdateID: 1, Message: &Message{MessageID: 2, Chat: Chat{ID: -1001, Type: "supergroup"}, From: &User{ID: 4}}},
+	}
+	for _, candidate := range invalid {
+		if _, ok := candidate.DomainMessage(); ok {
+			t.Fatalf("無效 update 不應轉換：%+v", candidate)
+		}
+	}
+}

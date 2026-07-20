@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
@@ -22,6 +23,8 @@ func TestUpdateCommand(t *testing.T) {
 		{name: "其他 bot", text: "/ping@other_bot", entity: MessageEntity{Type: "bot_command", Length: 15}, botUsername: "liyu_spam_bot", want: CommandIgnore},
 		{name: "不是開頭", text: "測試 /ping", entity: MessageEntity{Type: "bot_command", Offset: 3, Length: 5}, botUsername: "liyu_spam_bot", want: CommandNone},
 		{name: "Unicode 邊界無效", text: "😀/ping", entity: MessageEntity{Type: "bot_command", Offset: 1, Length: 5}, botUsername: "liyu_spam_bot", want: CommandNone},
+		{name: "未知指令交由 application 回覆", text: "/unknown", entity: MessageEntity{Type: "bot_command", Length: 8}, botUsername: "liyu_spam_bot", wantName: commanddomain.Name("unknown"), want: CommandHandle},
+		{name: "超長參數保留至網域邊界驗證", text: "/warn " + strings.Repeat("警", 201), entity: MessageEntity{Type: "bot_command", Length: 5}, botUsername: "liyu_spam_bot", wantName: commanddomain.NameWarn, wantArgs: strings.Repeat("警", 201), want: CommandHandle},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

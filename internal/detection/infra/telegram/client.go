@@ -9,9 +9,31 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var credentialURLPattern = regexp.MustCompile(`(?i)(https?://)[^\s/@:]+:[^\s/@]+@`)
+
+// APIError 是已遮蔽敏感資料的 Telegram 穩定錯誤分類。
+type APIError struct {
+	method      string
+	code        int
+	description string
+	retryable   bool
+	kind        string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("telegram %s 失敗：code=%d kind=%s description=%s", e.method, e.code, e.kind, e.description)
+}
+
+// ErrorCode 供 application 將穩定類型寫入稽核，不暴露原始 response。
+func (e *APIError) ErrorCode() string { return e.kind }
+
+// IsRetryable 只對限流、Server 錯誤與網路類暫時問題回傳 true。
+func (e *APIError) IsRetryable() bool { return e.retryable }
 
 // Client 封裝最小權限管理所需的 Telegram Bot API。
 type Client struct {
@@ -142,7 +164,7 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram %s：%w", method, err)
+		return &APIError{method: method, kind: "temporary", description: c.mask(err.Error()), retryable: true}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	limited, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -159,7 +181,8 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 		return fmt.Errorf("decode telegram %s response with status %d", method, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.OK {
-		return fmt.Errorf("telegram %s 失敗：code=%d description=%s", method, result.ErrorCode, c.mask(result.Description))
+		kind, retryable := classifyAPIError(resp.StatusCode, result.ErrorCode)
+		return &APIError{method: method, code: result.ErrorCode, description: c.mask(result.Description), retryable: retryable, kind: kind}
 	}
 	if target != nil {
 		if err := json.Unmarshal(result.Result, target); err != nil {
@@ -170,8 +193,23 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 }
 
 func (c *Client) mask(value string) string {
-	if c.token == "" {
-		return value
+	if c.token != "" {
+		value = strings.ReplaceAll(value, c.token, "[已遮蔽]")
 	}
-	return strings.ReplaceAll(value, c.token, "[已遮蔽]")
+	return credentialURLPattern.ReplaceAllString(value, `${1}[已遮蔽]@`)
+}
+
+func classifyAPIError(httpStatus, telegramCode int) (string, bool) {
+	code := telegramCode
+	if code == 0 {
+		code = httpStatus
+	}
+	switch {
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return "permission_denied", false
+	case code == http.StatusTooManyRequests || code >= http.StatusInternalServerError:
+		return "temporary", true
+	default:
+		return "telegram_rejected", false
+	}
 }

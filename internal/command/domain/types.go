@@ -2,7 +2,6 @@
 package domain
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -44,13 +43,68 @@ type User struct {
 	Username string
 }
 
+// Actor 是發起指令的群組成員，與處置目標分離可避免授權邏輯混用。
+type Actor User
+
+// Target 是指令要查詢或處置的一般成員。
+type Target User
+
+// Duration 是已通過一分鐘至七天邊界驗證的禁言時間。
+type Duration time.Duration
+
+// TimeDuration 轉為標準庫時間，僅在 Telegram API 邊界使用。
+func (d Duration) TimeDuration() time.Duration { return time.Duration(d) }
+
+// Reason 是已通過 200 Unicode code points 上限驗證的稽核原因。
+type Reason string
+
+// Result 是可安全落盤與在重送時回傳的穩定指令結果。
+type Result struct {
+	Status    string
+	Message   string
+	ErrorCode string
+	Retryable bool
+}
+
+// Claim 區分新取得的指令與已有結果，避免重送再次執行副作用。
+type Claim struct {
+	Acquired bool
+	Existing *Result
+}
+
+// ErrorCode 是可供 errors.As 後穩定判斷的指令錯誤類型。
+type ErrorCode string
+
+const (
+	// ErrorInvalidInput 表示指令參數不符合固定語法。
+	ErrorInvalidInput ErrorCode = "invalid_input"
+	// ErrorUnauthorized 表示操作者沒有群組管理權限。
+	ErrorUnauthorized ErrorCode = "unauthorized"
+	// ErrorProtected 表示目標為管理員、Bot 或可信任成員。
+	ErrorProtected ErrorCode = "protected_target"
+	// ErrorTemporary 表示依賴服務的可重試暫時失敗。
+	ErrorTemporary ErrorCode = "temporary_failure"
+)
+
+// CommandError 將穩定 code 與繁體中文公開訊息分離。
+type CommandError struct {
+	Code    ErrorCode
+	Message string
+}
+
+func (e *CommandError) Error() string { return e.Message }
+
+func invalidInput(message string) error {
+	return &CommandError{Code: ErrorInvalidInput, Message: message}
+}
+
 // Command 是 delivery 驗證 Telegram entity 後交給 application 的不可變輸入。
 type Command struct {
 	UpdateID      int64
 	ChatID        int64
 	MessageID     int64
-	Actor         User
-	Target        *User
+	Actor         Actor
+	Target        *Target
 	TargetMessage int64
 	Name          Name
 	Args          string
@@ -59,7 +113,7 @@ type Command struct {
 // NewCommand 驗證必要識別資訊並複製文字邊界。
 func NewCommand(command Command) (Command, error) {
 	if command.UpdateID == 0 || command.ChatID == 0 || command.MessageID == 0 || command.Actor.ID == 0 || command.Name == "" {
-		return Command{}, errors.New("command identifiers and name are required")
+		return Command{}, invalidInput("指令識別資訊與名稱不得為空")
 	}
 	command.Actor.Username = strings.Clone(command.Actor.Username)
 	command.Args = strings.Clone(strings.TrimSpace(command.Args))
@@ -108,24 +162,24 @@ func LookupDefinition(name Name) (Definition, bool) {
 }
 
 // ParseReason 限制人工原因，避免超長內容進入 Telegram 回應及稽核。
-func ParseReason(value string) (string, error) {
+func ParseReason(value string) (Reason, error) {
 	reason := strings.TrimSpace(value)
 	if utf8.RuneCountInString(reason) > 200 {
-		return "", errors.New("原因不得超過 200 個字元")
+		return "", invalidInput("原因不得超過 200 個字元")
 	}
-	return reason, nil
+	return Reason(reason), nil
 }
 
 // ParseDuration 支援管理員易讀的 m、h、d 單位，並限制一分鐘至七天。
-func ParseDuration(value string) (time.Duration, error) {
+func ParseDuration(value string) (Duration, error) {
 	value = strings.TrimSpace(value)
 	if len(value) < 2 {
-		return 0, errors.New("禁言時間格式錯誤")
+		return 0, invalidInput("禁言時間格式錯誤")
 	}
 	unit := value[len(value)-1]
 	number, err := strconv.ParseInt(value[:len(value)-1], 10, 64)
 	if err != nil || number <= 0 {
-		return 0, errors.New("禁言時間格式錯誤")
+		return 0, invalidInput("禁言時間格式錯誤")
 	}
 	var duration time.Duration
 	switch unit {
@@ -136,19 +190,19 @@ func ParseDuration(value string) (time.Duration, error) {
 	case 'd':
 		duration = time.Duration(number) * 24 * time.Hour
 	default:
-		return 0, errors.New("禁言時間只支援 m、h、d")
+		return 0, invalidInput("禁言時間只支援 m、h、d")
 	}
 	if duration < time.Minute || duration > 7*24*time.Hour {
-		return 0, errors.New("禁言時間必須介於一分鐘至七天")
+		return 0, invalidInput("禁言時間必須介於一分鐘至七天")
 	}
-	return duration, nil
+	return Duration(duration), nil
 }
 
 // ParseUserID 只接受正整數 Telegram user ID。
 func ParseUserID(value string) (int64, error) {
 	id, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	if err != nil || id <= 0 {
-		return 0, errors.New("user ID 格式錯誤")
+		return 0, invalidInput("user ID 格式錯誤")
 	}
 	return id, nil
 }

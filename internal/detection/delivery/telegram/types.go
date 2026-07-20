@@ -93,14 +93,14 @@ func (u Update) Command(botUsername string) (commanddomain.Command, CommandDispo
 		UpdateID:  u.UpdateID,
 		ChatID:    u.Message.Chat.ID,
 		MessageID: u.Message.MessageID,
-		Actor:     commanddomain.User{ID: u.Message.From.ID, IsBot: u.Message.From.IsBot, Username: u.Message.From.Username},
+		Actor:     commanddomain.Actor{ID: u.Message.From.ID, IsBot: u.Message.From.IsBot, Username: u.Message.From.Username},
 		Name:      commanddomain.Name(strings.ToLower(namePart)),
 		Args:      strings.TrimSpace(u.Message.Text[byteEnd:]),
 	}
 	if reply := u.Message.ReplyToMessage; reply != nil {
 		command.TargetMessage = reply.MessageID
 		if reply.From != nil {
-			command.Target = &commanddomain.User{ID: reply.From.ID, IsBot: reply.From.IsBot, Username: reply.From.Username}
+			command.Target = &commanddomain.Target{ID: reply.From.ID, IsBot: reply.From.IsBot, Username: reply.From.Username}
 		}
 	}
 	validated, err := commanddomain.NewCommand(command)

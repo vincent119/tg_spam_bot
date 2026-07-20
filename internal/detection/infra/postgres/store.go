@@ -87,6 +87,8 @@ type commandExecution struct {
 	Status          string     `gorm:"index;not null;comment:執行狀態"`
 	Result          string     `gorm:"size:500;comment:安全結果摘要"`
 	ErrorText       string     `gorm:"size:500;comment:安全錯誤摘要"`
+	ErrorCode       string     `gorm:"size:64;comment:穩定錯誤類型"`
+	Retryable       bool       `gorm:"comment:失敗指令是否可重試"`
 	CreatedAt       time.Time  `gorm:"not null;comment:建立 UTC 時間"`
 	CompletedAt     *time.Time `gorm:"comment:完成 UTC 時間"`
 }
@@ -186,7 +188,7 @@ func (s *Store) Create(ctx context.Context, event application.Event) (count int,
 }
 
 // ClaimCommand 以群組與 update 唯一鍵原子占用管理指令。
-func (s *Store) ClaimCommand(ctx context.Context, command commanddomain.Command) (bool, error) {
+func (s *Store) ClaimCommand(ctx context.Context, command commanddomain.Command) (commanddomain.Claim, error) {
 	targetID := int64(0)
 	if command.Target != nil {
 		targetID = command.Target.ID
@@ -198,7 +200,21 @@ func (s *Store) ClaimCommand(ctx context.Context, command commanddomain.Command)
 		Status: "processing", CreatedAt: time.Now().UTC(),
 	}
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
-	return result.RowsAffected == 1, result.Error
+	if result.Error != nil {
+		return commanddomain.Claim{}, result.Error
+	}
+	if result.RowsAffected == 1 {
+		return commanddomain.Claim{Acquired: true}, nil
+	}
+	var existing commandExecution
+	if err := s.db.WithContext(ctx).Where("chat_id=? AND update_id=?", command.ChatID, command.UpdateID).Take(&existing).Error; err != nil {
+		return commanddomain.Claim{}, err
+	}
+	existingResult := &commanddomain.Result{Status: existing.Status, Message: existing.Result, ErrorCode: existing.ErrorCode, Retryable: existing.Retryable}
+	if existingResult.Message == "" && existing.ErrorText != "" {
+		existingResult.Message = existing.ErrorText
+	}
+	return commanddomain.Claim{Existing: existingResult}, nil
 }
 
 func truncateRunes(value string, limit int) string {
@@ -210,11 +226,18 @@ func truncateRunes(value string, limit int) string {
 }
 
 // CompleteCommand 保存指令穩定結果，不保存 Telegram 原始 response。
-func (s *Store) CompleteCommand(ctx context.Context, command commanddomain.Command, status, resultText, errorText string) error {
+func (s *Store) CompleteCommand(ctx context.Context, command commanddomain.Command, result commanddomain.Result) error {
 	now := time.Now().UTC()
+	errorText := ""
+	if result.Status == "failed" {
+		errorText = result.Message
+	}
 	return s.db.WithContext(ctx).Model(&commandExecution{}).
 		Where("chat_id=? AND update_id=?", command.ChatID, command.UpdateID).
-		Updates(map[string]any{"status": status, "result": resultText, "error_text": errorText, "completed_at": now}).Error
+		Updates(map[string]any{
+			"status": result.Status, "result": result.Message, "error_text": errorText,
+			"error_code": result.ErrorCode, "retryable": result.Retryable, "completed_at": now,
+		}).Error
 }
 
 // Warnings 回傳指定期間仍有效的人工及自動違規摘要。
@@ -244,7 +267,7 @@ func (s *Store) Warnings(ctx context.Context, chatID, userID int64, since time.T
 }
 
 // AddManualWarning 在 transaction 內建立人工違規並回傳最新 30 天摘要。
-func (s *Store) AddManualWarning(ctx context.Context, command commanddomain.Command, reason string, occurredAt time.Time) (summary commandapp.WarningSummary, err error) {
+func (s *Store) AddManualWarning(ctx context.Context, command commanddomain.Command, reason commanddomain.Reason, occurredAt time.Time) (summary commandapp.WarningSummary, err error) {
 	if command.Target == nil {
 		return commandapp.WarningSummary{}, errors.New("人工警告缺少目標")
 	}
@@ -252,7 +275,7 @@ func (s *Store) AddManualWarning(ctx context.Context, command commanddomain.Comm
 		row := violation{
 			EventID: fmt.Sprintf("manual:%d:%d", command.ChatID, command.UpdateID), ChatID: command.ChatID,
 			UserID: command.Target.ID, CategoryID: "manual_warning", Severity: "warning", Source: "manual",
-			OperatorID: command.Actor.ID, Reason: reason, OccurredAt: occurredAt,
+			OperatorID: command.Actor.ID, Reason: string(reason), OccurredAt: occurredAt,
 		}
 		if createErr := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; createErr != nil {
 			return createErr
@@ -260,20 +283,51 @@ func (s *Store) AddManualWarning(ctx context.Context, command commanddomain.Comm
 		store := &Store{db: tx}
 		var queryErr error
 		summary, queryErr = store.Warnings(ctx, command.ChatID, command.Target.ID, occurredAt.Add(-30*24*time.Hour))
-		return queryErr
+		if queryErr != nil {
+			return queryErr
+		}
+		resultText := fmt.Sprintf("已警告使用者 %d，目前最近 30 天共 %d 次。", command.Target.ID, summary.Total)
+		auditResult := tx.Model(&commandExecution{}).
+			Where("chat_id=? AND update_id=?", command.ChatID, command.UpdateID).
+			Updates(map[string]any{"status": "effect_applied", "result": resultText})
+		if auditResult.Error != nil {
+			return auditResult.Error
+		}
+		if auditResult.RowsAffected != 1 {
+			return errors.New("人工警告缺少 command execution 稽核紀錄")
+		}
+		return nil
 	})
 	return summary, err
 }
 
 // ClearWarnings 以失效標記保留原始違規及完整稽核鏈。
-func (s *Store) ClearWarnings(ctx context.Context, command commanddomain.Command, reason string, invalidatedAt time.Time) (int64, error) {
+func (s *Store) ClearWarnings(ctx context.Context, command commanddomain.Command, reason commanddomain.Reason, invalidatedAt time.Time) (int64, error) {
 	if command.Target == nil {
 		return 0, errors.New("清除警告缺少目標")
 	}
-	result := s.db.WithContext(ctx).Model(&violation{}).
-		Where("chat_id=? AND user_id=? AND invalidated_at IS NULL", command.ChatID, command.Target.ID).
-		Updates(map[string]any{"invalidated_at": invalidatedAt, "invalidated_by": command.Actor.ID, "invalidation_reason": reason})
-	return result.RowsAffected, result.Error
+	var count int64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&violation{}).
+			Where("chat_id=? AND user_id=? AND invalidated_at IS NULL", command.ChatID, command.Target.ID).
+			Updates(map[string]any{"invalidated_at": invalidatedAt, "invalidated_by": command.Actor.ID, "invalidation_reason": string(reason)})
+		if result.Error != nil {
+			return result.Error
+		}
+		count = result.RowsAffected
+		resultText := fmt.Sprintf("已失效使用者 %d 的 %d 筆警告紀錄。", command.Target.ID, count)
+		auditResult := tx.Model(&commandExecution{}).
+			Where("chat_id=? AND update_id=?", command.ChatID, command.UpdateID).
+			Updates(map[string]any{"status": "effect_applied", "result": resultText})
+		if auditResult.Error != nil {
+			return auditResult.Error
+		}
+		if auditResult.RowsAffected != 1 {
+			return errors.New("清除警告缺少 command execution 稽核紀錄")
+		}
+		return nil
+	})
+	return count, err
 }
 
 // CompleteAction 保存每項 Telegram API 呼叫的獨立結果。
