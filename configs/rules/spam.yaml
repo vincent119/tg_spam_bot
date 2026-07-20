@@ -17,8 +17,8 @@ categories:
     threshold: 80
     weight: 70
     enabled: true
-    terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底]
-    aliases: [流水奖励, 人头费, 負盈利, 分红]
+    terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底, 轉U, 交易所]
+    aliases: [流水奖励, 人头费, 負盈利, 分红, 转U]
     require_any: [telegram_mention, telegram_invite, profit_claim]
   - id: generic_ad
     name: 一般廣告
