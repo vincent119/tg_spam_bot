@@ -8,20 +8,24 @@ type ContentSource string
 
 // 支援的命中內容來源。
 const (
-	SourceNormalized  ContentSource = "normalized"
-	SourceTraditional ContentSource = "traditional_variant"
+	SourceNormalized           ContentSource = "normalized"
+	SourceTraditional          ContentSource = "traditional_variant"
+	SourceReferenceNormalized  ContentSource = "reference_normalized"
+	SourceReferenceTraditional ContentSource = "reference_traditional_variant"
 )
 
 // Message 是與 Telegram 傳輸格式解耦的偵測輸入。
 type Message struct {
-	UpdateID   int64
-	ChatID     int64
-	MessageID  int64
-	UserID     int64
-	Text       string
-	Entities   []Entity
-	JoinedAt   time.Time
-	ReceivedAt time.Time
+	UpdateID  int64
+	ChatID    int64
+	MessageID int64
+	UserID    int64
+	Text      string
+	// ReferenceText 與發送者輸入分離，避免將被引用內容的聯絡訊號誤算為發送者行為。
+	ReferenceText string
+	Entities      []Entity
+	JoinedAt      time.Time
+	ReceivedAt    time.Time
 }
 
 // Entity 保存 URL 與 mention 等 Telegram 結構化資訊。

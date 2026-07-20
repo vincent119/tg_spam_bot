@@ -24,10 +24,16 @@ type Message struct {
 	From            *User           `json:"from,omitempty"`
 	SenderChat      *Chat           `json:"sender_chat,omitempty"`
 	ReplyToMessage  *Message        `json:"reply_to_message,omitempty"`
+	Quote           *TextQuote      `json:"quote,omitempty"`
 	Text            string          `json:"text,omitempty"`
 	Caption         string          `json:"caption,omitempty"`
 	Entities        []MessageEntity `json:"entities,omitempty"`
 	CaptionEntities []MessageEntity `json:"caption_entities,omitempty"`
+}
+
+// TextQuote 保留 Telegram 回覆中由發送者選取的引用文字。
+type TextQuote struct {
+	Text string `json:"text"`
 }
 
 // Chat 保存 Telegram 群組識別資訊。
@@ -168,13 +174,22 @@ func (u Update) DomainMessage() (domain.Message, bool) {
 	if strings.TrimSpace(text) == "" {
 		return domain.Message{}, false
 	}
+	referenceText := ""
+	if u.Message.Quote != nil {
+		referenceText = u.Message.Quote.Text
+	} else if reply := u.Message.ReplyToMessage; reply != nil {
+		referenceText = reply.Text
+		if strings.TrimSpace(referenceText) == "" {
+			referenceText = reply.Caption
+		}
+	}
 	domainEntities := make([]domain.Entity, 0, len(entities))
 	for _, entity := range entities {
 		domainEntities = append(domainEntities, domain.Entity{Type: entity.Type, URL: entity.URL})
 	}
 	return domain.NewMessage(domain.Message{
 		UpdateID: u.UpdateID, ChatID: u.Message.Chat.ID, MessageID: u.Message.MessageID,
-		UserID: u.Message.From.ID, Text: text, Entities: domainEntities,
+		UserID: u.Message.From.ID, Text: text, ReferenceText: referenceText, Entities: domainEntities,
 		ReceivedAt: time.Unix(u.Message.Date, 0).UTC(),
 	}), true
 }

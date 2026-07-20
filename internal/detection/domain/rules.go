@@ -63,6 +63,8 @@ func NewDetector(rules RuleSet, normalizer Normalizer, allowDomains, denyDomains
 // Detect 同時比對原文正規化結果與繁體副本，再合併行為訊號評分。
 func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 	text := d.normalizer.Normalize(message.Text)
+	referenceText := d.normalizer.Normalize(message.ReferenceText)
+	// 引用內容只參與詞彙比對，行為訊號必須來自發送者實際輸入。
 	signals := detectSignals(text.Normalized, message.Entities, d.allow, d.deny)
 	signals = unique(append(signals, extraSignals...))
 	result := Result{RuleVersion: d.rules.Version, Signals: append([]string(nil), signals...)}
@@ -71,7 +73,8 @@ func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 		if !category.Enabled {
 			continue
 		}
-		matches := matchCategory(category, text)
+		matches := matchCategory(category, text, SourceNormalized, SourceTraditional)
+		matches = mergeMatches(matches, matchCategory(category, referenceText, SourceReferenceNormalized, SourceReferenceTraditional))
 		if len(matches) == 0 {
 			continue
 		}
@@ -101,7 +104,7 @@ func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 	return result
 }
 
-func matchCategory(category Category, text NormalizedText) []Match {
+func matchCategory(category Category, text NormalizedText, normalizedSource, traditionalSource ContentSource) []Match {
 	terms := append(append([]string(nil), category.Terms...), category.Aliases...)
 	seen := make(map[string]struct{}, len(terms))
 	var matches []Match
@@ -110,11 +113,11 @@ func matchCategory(category Category, text NormalizedText) []Match {
 		if normalizedTerm == "" {
 			continue
 		}
-		source := SourceNormalized
+		source := normalizedSource
 		matched := strings.Contains(text.Normalized, normalizedTerm)
 		if !matched && strings.Contains(text.TraditionalVariant, normalizedTerm) {
 			matched = true
-			source = SourceTraditional
+			source = traditionalSource
 		}
 		if matched {
 			key := category.ID + "\x00" + normalizedTerm
@@ -126,6 +129,20 @@ func matchCategory(category Category, text NormalizedText) []Match {
 		}
 	}
 	return matches
+}
+
+func mergeMatches(primary, reference []Match) []Match {
+	seen := make(map[string]struct{}, len(primary)+len(reference))
+	merged := make([]Match, 0, len(primary)+len(reference))
+	for _, match := range append(append([]Match(nil), primary...), reference...) {
+		key := match.RuleID + "\x00" + normalizeComparable(match.Term)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, match)
+	}
+	return merged
 }
 
 func detectSignals(text string, entities []Entity, allow, deny []string) []string {

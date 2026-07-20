@@ -41,6 +41,36 @@ func TestDetector(t *testing.T) {
 	}
 }
 
+func TestDetectorSeparatesReferenceTermsFromSenderSignals(t *testing.T) {
+	t.Parallel()
+
+	rules := RuleSet{Version: "v1", Categories: []Category{{
+		ID: "douyin", Severity: SeverityCritical, Action: ActionBan, Threshold: 80, Weight: 70,
+		Enabled: true, Terms: []string{"抖音代刷禮物"}, RequireAny: []string{"telegram_mention"},
+	}}}
+	detector, err := NewDetector(rules, NewNormalizer(OpenCCConverter{}, 4096), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		message Message
+		spam    bool
+	}{
+		{name: "引用廣告並提供外層聯絡人", message: Message{Text: "聯絡 @seller", ReferenceText: "抖音代刷礼物"}, spam: true},
+		{name: "單純回覆含聯絡人的垃圾訊息", message: Message{Text: "這是垃圾訊息", ReferenceText: "抖音代刷礼物 @seller"}, spam: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.Detect(tt.message)
+			if got.Spam != tt.spam {
+				t.Fatalf("Detect().Spam = %v, want %v; result=%#v", got.Spam, tt.spam, got)
+			}
+		})
+	}
+}
+
 func TestNormalizerPreservesOriginal(t *testing.T) {
 	t.Parallel()
 	n := NewNormalizer(fakeConverter{value: "高薪兼職"}, 100)
