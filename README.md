@@ -74,6 +74,14 @@ docker compose ps
 docker compose logs -f app
 ```
 
+`log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因或 Telegram 訊息原文。
+
+啟動時出現 `資料庫結構同步完成` 代表 GORM AutoMigrate 已成功；失敗時應用程式會在 HTTP Server 啟動前結束。查詢最近五分鐘日誌：
+
+```sh
+docker compose logs app --since 5m
+```
+
 PostgreSQL 與 Redis 健康後，應用程式才會啟動。PostgreSQL 資料與 Redis 狀態分別保存於 named volume。
 
 停止服務但保留資料：

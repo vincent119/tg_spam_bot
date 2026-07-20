@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vincent119/zlogger"
+
 	"github.com/vincent119/tg_spam_bot/internal/command/domain"
 )
 
@@ -57,11 +59,18 @@ func NewHandler(telegram Telegram, trusted TrustedMembers, store ExecutionStore,
 
 // Handle 先以 update ID 收斂重送，再依固定權限矩陣執行一次指令。
 func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
+	logCommand(ctx, "收到 Telegram 管理指令", command, domain.Result{Status: "received"})
 	claim, err := h.store.ClaimCommand(ctx, command)
 	if err != nil {
 		return fmt.Errorf("占用管理指令：%w", err)
 	}
 	if !claim.Acquired {
+		result := domain.Result{Status: "duplicate"}
+		if claim.Existing != nil {
+			result.ErrorCode = claim.Existing.ErrorCode
+			result.Retryable = claim.Existing.Retryable
+		}
+		logCommand(ctx, "Telegram 管理指令重送，略過副作用", command, result)
 		// Telegram 重送已完成指令時回傳同一安全結果，但不重複執行業務副作用。
 		if claim.Existing != nil && claim.Existing.Message != "" && claim.Existing.Status != "processing" {
 			return h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, claim.Existing.Message)
@@ -81,7 +90,12 @@ func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
 			return h.fail(ctx, command, "暫時無法檢查指令頻率", err)
 		}
 		if !allowed {
-			return h.store.CompleteCommand(ctx, command, domain.Result{Status: "rate_limited"})
+			result := domain.Result{Status: "rate_limited"}
+			if err := h.store.CompleteCommand(ctx, command, result); err != nil {
+				return fmt.Errorf("完成管理指令：%w", err)
+			}
+			logCommand(ctx, "Telegram 管理指令已限流", command, result)
+			return nil
 		}
 		return h.handlePublic(ctx, command)
 	}
@@ -268,9 +282,11 @@ func (h *Handler) finishWithReply(ctx context.Context, command domain.Command, s
 			return h.fail(ctx, command, "傳送指令回應失敗", err)
 		}
 	}
-	if err := h.store.CompleteCommand(ctx, command, domain.Result{Status: status, Message: text, ErrorCode: errorText}); err != nil {
+	result := domain.Result{Status: status, Message: text, ErrorCode: errorText}
+	if err := h.store.CompleteCommand(ctx, command, result); err != nil {
 		return fmt.Errorf("完成管理指令：%w", err)
 	}
+	logCommand(ctx, "完成 Telegram 管理指令", command, result)
 	return nil
 }
 
@@ -280,9 +296,36 @@ func (h *Handler) fail(ctx context.Context, command domain.Command, public strin
 	if retryable {
 		message += "，請稍後再試。"
 	}
-	_ = h.store.CompleteCommand(ctx, command, domain.Result{Status: "failed", Message: message, ErrorCode: code, Retryable: retryable})
+	result := domain.Result{Status: "failed", Message: message, ErrorCode: code, Retryable: retryable}
+	_ = h.store.CompleteCommand(ctx, command, result)
 	_ = h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, message)
+	fields := commandLogFields(command, result)
+	fields = append(fields, zlogger.Err(cause))
+	zlogger.ErrorContext(ctx, "Telegram 管理指令執行失敗", fields...)
 	return fmt.Errorf("%s：%w", public, cause)
+}
+
+// logCommand 只記錄稽核識別資訊，不輸出指令參數、原因或 Telegram 訊息原文。
+func logCommand(ctx context.Context, message string, command domain.Command, result domain.Result) {
+	zlogger.DebugContext(ctx, message, commandLogFields(command, result)...)
+}
+
+func commandLogFields(command domain.Command, result domain.Result) []zlogger.Field {
+	targetUserID := int64(0)
+	if command.Target != nil {
+		targetUserID = command.Target.ID
+	}
+	return []zlogger.Field{
+		zlogger.String("subsystem", "command"),
+		zlogger.Int64("update_id", command.UpdateID),
+		zlogger.Int64("chat_id", command.ChatID),
+		zlogger.Int64("operator_id", command.Actor.ID),
+		zlogger.Int64("target_user_id", targetUserID),
+		zlogger.String("command", string(command.Name)),
+		zlogger.String("status", result.Status),
+		zlogger.String("error_code", result.ErrorCode),
+		zlogger.Bool("retryable", result.Retryable),
+	}
 }
 
 type classifiedError interface {

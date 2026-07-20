@@ -89,6 +89,36 @@ type fixedClock struct{ now time.Time }
 
 func (c fixedClock) Now() time.Time { return c.now }
 
+func TestCommandLogFieldsExcludeSensitiveContent(t *testing.T) {
+	t.Parallel()
+	command := domain.Command{
+		UpdateID: 1,
+		ChatID:   -1001,
+		Actor:    domain.Actor{ID: 2},
+		Target:   &domain.Target{ID: 3},
+		Name:     domain.NameWarn,
+		Args:     "不得寫入日誌的原因",
+	}
+	fields := commandLogFields(command, domain.Result{Status: "completed", Message: "不得寫入日誌的回覆"})
+	wantKeys := map[string]bool{
+		"subsystem": false, "update_id": false, "chat_id": false, "operator_id": false,
+		"target_user_id": false, "command": false, "status": false, "error_code": false, "retryable": false,
+	}
+	for _, field := range fields {
+		if field.Key == "args" || field.Key == "reason" || field.Key == "message" || strings.Contains(field.String, "不得寫入日誌") {
+			t.Fatalf("敏感欄位進入 command 日誌：%s", field.Key)
+		}
+		if _, ok := wantKeys[field.Key]; ok {
+			wantKeys[field.Key] = true
+		}
+	}
+	for key, found := range wantKeys {
+		if !found {
+			t.Errorf("缺少 command 日誌欄位 %s", key)
+		}
+	}
+}
+
 func (s *storeStub) Warnings(context.Context, int64, int64, time.Time) (WarningSummary, error) {
 	return s.warnings, nil
 }

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vincent119/zlogger"
+
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
@@ -127,17 +129,35 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	ctx := zlogger.WithRequestID(r.Context(), fmt.Sprintf("tg:%d", update.UpdateID))
+	zlogger.DebugContext(ctx, "收到 Telegram Webhook 更新",
+		zlogger.String("subsystem", "webhook"),
+		zlogger.Int64("update_id", update.UpdateID),
+		zlogger.Int64("chat_id", update.Message.Chat.ID),
+	)
 	if h.commands != nil {
 		command, disposition := update.Command(h.botUsername)
 		switch disposition {
 		case CommandHandle:
-			if err := h.commands.Handle(r.Context(), command); err != nil {
+			if err := h.commands.Handle(ctx, command); err != nil {
+				zlogger.ErrorContext(ctx, "處理 Telegram 管理指令失敗",
+					zlogger.String("subsystem", "webhook"),
+					zlogger.Int64("update_id", update.UpdateID),
+					zlogger.Int64("chat_id", update.Message.Chat.ID),
+					zlogger.String("command", string(command.Name)),
+					zlogger.Err(err),
+				)
 				http.Error(w, "temporary command failure", http.StatusServiceUnavailable)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		case CommandIgnore:
+			zlogger.DebugContext(ctx, "略過不屬於目前 Bot 的管理指令",
+				zlogger.String("subsystem", "webhook"),
+				zlogger.Int64("update_id", update.UpdateID),
+				zlogger.Int64("chat_id", update.Message.Chat.ID),
+			)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -147,7 +167,13 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.process.Process(r.Context(), message); err != nil {
+	if err := h.process.Process(ctx, message); err != nil {
+		zlogger.ErrorContext(ctx, "處理 Telegram 訊息失敗",
+			zlogger.String("subsystem", "webhook"),
+			zlogger.Int64("update_id", update.UpdateID),
+			zlogger.Int64("chat_id", update.Message.Chat.ID),
+			zlogger.Err(err),
+		)
 		http.Error(w, "temporary processing failure", http.StatusServiceUnavailable)
 		return
 	}

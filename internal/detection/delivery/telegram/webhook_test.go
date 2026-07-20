@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vincent119/zlogger"
+
 	commanddomain "github.com/vincent119/tg_spam_bot/internal/command/domain"
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
@@ -132,10 +134,13 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 		2048,
 		processorFunc(func(context.Context, domain.Message) error { messages++; return nil }),
 		WithAllowedChatIDs([]int64{-1001}),
-		WithCommandProcessor(commandProcessorFunc(func(_ context.Context, command commanddomain.Command) error {
+		WithCommandProcessor(commandProcessorFunc(func(ctx context.Context, command commanddomain.Command) error {
 			commands++
 			if command.Name != commanddomain.NamePing {
 				t.Fatalf("command = %q", command.Name)
+			}
+			if requestID := contextStringField(ctx, "request_id"); requestID != "tg:11" {
+				t.Fatalf("request_id = %q，預期 tg:11", requestID)
 			}
 			return nil
 		}), "liyu_spam_bot"),
@@ -151,4 +156,13 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 	if res.Code != http.StatusNoContent || commands != 1 || messages != 0 {
 		t.Fatalf("status=%d commands=%d messages=%d", res.Code, commands, messages)
 	}
+}
+
+func contextStringField(ctx context.Context, key string) string {
+	for _, field := range zlogger.FromContext(ctx) {
+		if field.Key == key {
+			return field.String
+		}
+	}
+	return ""
 }

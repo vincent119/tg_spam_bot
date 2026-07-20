@@ -61,3 +61,10 @@
 - [x] 8.3 補充 PostgreSQL schema 變更、AutoMigrate 部署前備份驗證與回滾說明
 - [x] 8.4 執行 `gofmt -s`、`go vet ./...`、lint、`go test -race -count=1 ./...`、coverage、關鍵 parser fuzz／benchmark
 - [ ] 8.5 在測試 supergroup 逐項驗證 11 個指令、權限撤銷、受保護目標、Webhook 重送及 Telegram API 權限錯誤
+
+## 9. 結構化日誌修正
+
+- [x] 9.1 在 Webhook 邊界注入穩定 request ID，並傳遞至 command 與一般訊息處理 context
+- [x] 9.2 記錄 command 接收、完成、重送、限流及失敗結果，禁止輸出參數、原因與訊息原文
+- [x] 9.3 記錄 AutoMigrate 成功事件與 Webhook 處理錯誤，統一補上 subsystem 與安全錯誤欄位
+- [x] 9.4 補充 context 傳遞測試並執行格式化、vet、lint 與 race tests

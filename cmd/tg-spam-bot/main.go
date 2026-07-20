@@ -70,6 +70,10 @@ func run(cfg config.Config) error {
 	if err := pgstore.AutoMigrate(ctx, db); err != nil {
 		return err
 	}
+	zlogger.InfoContext(ctx, "資料庫結構同步完成",
+		zlogger.String("subsystem", "database"),
+		zlogger.String("operation", "auto_migrate"),
+	)
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
@@ -154,7 +158,7 @@ func run(cfg config.Config) error {
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.App.ReadTimeout, WriteTimeout: cfg.App.WriteTimeout, IdleTimeout: 60 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
-	zlogger.InfoContext(ctx, "伺服器已啟動", zlogger.String("addr", cfg.HTTPAddress()), zlogger.String("mode", string(cfg.App.Mode)), zlogger.String("env", cfg.App.Env), zlogger.String("rule_version", ruleSet.Version))
+	zlogger.InfoContext(ctx, "伺服器已啟動", zlogger.String("subsystem", "application"), zlogger.String("addr", cfg.HTTPAddress()), zlogger.String("mode", string(cfg.App.Mode)), zlogger.String("env", cfg.App.Env), zlogger.String("rule_version", ruleSet.Version))
 
 	select {
 	case <-ctx.Done():
