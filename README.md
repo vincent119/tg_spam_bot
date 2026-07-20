@@ -236,6 +236,8 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 
 群組中 Telegram 可能送出 `/command@liyu_spam_bot`，服務會自動驗證 suffix；其他 Bot 的指令會靜默忽略。具副作用指令每次都向 Telegram 即時確認操作者仍是管理員，且禁止處置管理員、Bot 與可信任成員。
 
+匿名管理員或以群組身份發出的管理指令不會執行。這類訊息通常無法提供真實操作者的 user ID，服務無法用 `getChatMember` 驗證該真人仍是管理員，也無法在 `command_executions` 中保存可稽核的 `operator_id`。需要執行 `/del`、`/ban`、`/mute`、`/warn` 等管理指令時，請管理員改用個人身份送出指令。
+
 實際在群組輸入時，可使用 `/ping` 或 `/ping@liyu_spam_bot`。若同一群組有多個 Bot，建議使用帶 username 的格式，例如：
 
 ```text

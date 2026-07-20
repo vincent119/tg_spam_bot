@@ -194,6 +194,8 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, "temporary auto reply failure", http.StatusServiceUnavailable)
 					return
 				}
+			} else {
+				logAutoReplySkipped(ctx, update, "message_not_supported")
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -210,7 +212,12 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "temporary processing failure", http.StatusServiceUnavailable)
 		return
 	}
-	if h.autoReplies != nil && !result.Spam {
+	if h.autoReplies != nil {
+		if result.Spam {
+			logAutoReplySkipped(ctx, update, "spam_detected")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if err := h.autoReplies.Process(ctx, message); err != nil {
 			zlogger.ErrorContext(ctx, "處理 Telegram 自動回覆失敗",
 				zlogger.String("subsystem", "webhook"),
@@ -223,6 +230,19 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func logAutoReplySkipped(ctx context.Context, update Update, reason string) {
+	if update.Message == nil {
+		return
+	}
+	zlogger.DebugContext(ctx, "略過自動回覆",
+		zlogger.String("subsystem", "auto_reply"),
+		zlogger.Int64("update_id", update.UpdateID),
+		zlogger.Int64("chat_id", update.Message.Chat.ID),
+		zlogger.Int64("message_id", update.Message.MessageID),
+		zlogger.String("reason", reason),
+	)
 }
 
 func ensureEOF(decoder *json.Decoder) error {

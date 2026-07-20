@@ -3,7 +3,9 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	detectiondomain "github.com/vincent119/tg_spam_bot/internal/detection/domain"
 	"github.com/vincent119/zlogger"
@@ -65,6 +67,7 @@ func NewProcessor(matcher Matcher, store Store, telegram Telegram) (*Processor, 
 func (p *Processor) Process(ctx context.Context, message detectiondomain.Message) error {
 	match, ok := p.matcher.Match(message)
 	if !ok {
+		logAutoReplyNoMatch(ctx, message)
 		return nil
 	}
 	event := Event{ChatID: message.ChatID, UpdateID: message.UpdateID, MessageID: message.MessageID, UserID: message.UserID, RuleID: match.RuleID, CreatedAt: p.now().UTC()}
@@ -87,6 +90,29 @@ func (p *Processor) Process(ctx context.Context, message detectiondomain.Message
 	}
 	logAutoReply(ctx, "完成自動回覆", event, Result{Status: "completed"})
 	return nil
+}
+
+func logAutoReplyNoMatch(ctx context.Context, message detectiondomain.Message) {
+	zlogger.DebugContext(ctx, "自動回覆未命中規則",
+		zlogger.String("subsystem", "auto_reply"),
+		zlogger.Int64("update_id", message.UpdateID),
+		zlogger.Int64("chat_id", message.ChatID),
+		zlogger.Int64("message_id", message.MessageID),
+		zlogger.Int64("user_id", message.UserID),
+		zlogger.String("text_preview", textPreview(message.Text, 80)),
+	)
+}
+
+func textPreview(text string, maxRunes int) string {
+	text = strings.TrimSpace(text)
+	if maxRunes <= 0 || text == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:maxRunes])
 }
 
 func classifyError(err error) Result {
