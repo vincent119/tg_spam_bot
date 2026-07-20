@@ -54,6 +54,14 @@ type Config struct {
 		Level string `mapstructure:"level"`
 		// Format 支援 json 或 console。
 		Format string `mapstructure:"format"`
+		// Outputs 支援 console、file，可同時輸出。
+		Outputs []string `mapstructure:"outputs"`
+		// Path 是 file output 使用的 log 目錄。
+		Path string `mapstructure:"path"`
+		// File 是 file output 使用的檔名；留空時由 logger 使用日期檔名。
+		File string `mapstructure:"file"`
+		// MaxFiles 限制 Path 中保留的 .log 檔案數量；0 表示不清理。
+		MaxFiles int `mapstructure:"max_files"`
 	} `mapstructure:"log"`
 	// DB 控制 PostgreSQL 連線、連線池及 TLS；URL 可整體覆寫分項設定。
 	DB struct {
@@ -188,6 +196,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.max_body_bytes", int64(1<<20))
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
+	v.SetDefault("log.outputs", []string{"console"})
+	v.SetDefault("log.path", "./logs")
+	v.SetDefault("log.max_files", 0)
 	v.SetDefault("db.primary.host", "localhost")
 	v.SetDefault("db.primary.port", 5432)
 	v.SetDefault("db.max_open_conns", 25)
@@ -206,6 +217,7 @@ func envBindings() map[string]string {
 		"app.addr": "HTTP_ADDR", "app.port": "APP_PORT", "app.env": "APP_ENV", "app.mode": "APP_MODE",
 		"app.business_timezone": "BUSINESS_TIMEZONE", "app.read_timeout": "READ_TIMEOUT", "app.write_timeout": "WRITE_TIMEOUT",
 		"app.shutdown_timeout": "SHUTDOWN_TIMEOUT", "log.level": "LOG_LEVEL", "log.format": "LOG_FORMAT",
+		"log.outputs": "LOG_OUTPUTS", "log.path": "LOG_PATH", "log.file": "LOG_FILE", "log.max_files": "LOG_MAX_FILES",
 		"db.url": "DATABASE_URL", "db.name": "DB_NAME", "db.primary.host": "DB_HOST", "db.primary.port": "DB_PORT",
 		"db.primary.user": "DB_USER", "db.primary.password": "DB_PASSWORD", "telegram.bot_token": "TELEGRAM_BOT_TOKEN",
 		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
@@ -278,6 +290,17 @@ func (c Config) Validate() error {
 	}
 	if c.Log.Level == "" || (c.Log.Format != "json" && c.Log.Format != "console") {
 		errs = append(errs, errors.New("log: level is required and format must be json or console"))
+	}
+	if len(c.Log.Outputs) == 0 {
+		errs = append(errs, errors.New("log.outputs: at least one output is required"))
+	}
+	for _, output := range c.Log.Outputs {
+		if output != "console" && output != "file" {
+			errs = append(errs, fmt.Errorf("log.outputs: unsupported output %q", output))
+		}
+	}
+	if c.Log.MaxFiles < 0 {
+		errs = append(errs, errors.New("log.max_files: must not be negative"))
 	}
 	if c.DB.URL == "" && (c.DB.Name == "" || c.DB.Primary.Host == "" || c.DB.Primary.User == "" || c.DB.Primary.Password == "") {
 		errs = append(errs, errors.New("db: name, primary host, user and password are required when DATABASE_URL is empty"))

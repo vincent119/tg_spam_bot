@@ -22,6 +22,8 @@ func TestValidate(t *testing.T) {
 	valid.App.MaxBodyBytes = 1024
 	valid.Log.Level = "info"
 	valid.Log.Format = "json"
+	valid.Log.Outputs = []string{"console"}
+	valid.Log.Path = "./logs"
 	valid.Telegram.BotToken = "token"
 	valid.Telegram.WebhookSecret = "secret"
 	valid.Telegram.AllowedChatIDs = []int64{-1001234567890}
@@ -45,6 +47,9 @@ func TestValidate(t *testing.T) {
 		{name: "zero allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{0} }, wantErr: true},
 		{name: "duplicate allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{-1001, -1001} }, wantErr: true},
 		{name: "short hash key", mutate: func(c *Config) { c.Security.ContentHashKey = "short" }, wantErr: true},
+		{name: "missing log outputs", mutate: func(c *Config) { c.Log.Outputs = nil }, wantErr: true},
+		{name: "invalid log output", mutate: func(c *Config) { c.Log.Outputs = []string{"console", "bad"} }, wantErr: true},
+		{name: "negative log max files", mutate: func(c *Config) { c.Log.MaxFiles = -1 }, wantErr: true},
 		{name: "enabled auto replies missing rules file", mutate: func(c *Config) { c.AutoReplies.Enabled = true }, wantErr: true},
 		{name: "enabled auto replies with rules file", mutate: func(c *Config) {
 			c.AutoReplies.Enabled = true
@@ -85,6 +90,12 @@ app:
 log:
   level: info
   format: json
+  outputs:
+    - console
+    - file
+  path: ./logs
+  file: app.log
+  max_files: 14
 db:
   name: tg_spam
   primary:
@@ -114,6 +125,9 @@ auto_replies:
 	}
 	if cfg.Redis.Username != "app" || cfg.RedisPassword() != "redis-secret" || cfg.Redis.DB != 2 {
 		t.Fatalf("未正確載入 Redis 設定：%+v", cfg.Redis)
+	}
+	if len(cfg.Log.Outputs) != 2 || cfg.Log.Outputs[1] != "file" || cfg.Log.Path != "./logs" || cfg.Log.File != "app.log" || cfg.Log.MaxFiles != 14 {
+		t.Fatalf("未正確載入 log 設定：%+v", cfg.Log)
 	}
 	if len(cfg.Telegram.AllowedChatIDs) != 2 || cfg.Telegram.AllowedChatIDs[0] != -1001234567890 {
 		t.Fatalf("未正確載入 Telegram 允許群組：%+v", cfg.Telegram.AllowedChatIDs)

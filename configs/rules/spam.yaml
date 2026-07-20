@@ -17,8 +17,8 @@ categories:
     threshold: 80
     weight: 70
     enabled: true
-    terms: [博彩代理, 流水獎勵, 人頭費]
-    aliases: [流水奖励, 人头费, 負盈利]
+    terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底]
+    aliases: [流水奖励, 人头费, 負盈利, 分红]
     require_any: [telegram_mention, telegram_invite, profit_claim]
   - id: generic_ad
     name: 一般廣告
@@ -27,8 +27,8 @@ categories:
     threshold: 60
     weight: 40
     enabled: true
-    terms: [免費領取, 高薪兼職, 長期穩定供應, guaranteed profit, earn money fast]
-    aliases: [免费领取, 高薪兼职, 长期稳定供应]
+    terms: [免費領取, 高薪兼職, 長期穩定供應, 包養, guaranteed profit, earn money fast]
+    aliases: [免费领取, 高薪兼职, 长期稳定供应, 包养]
     require_any: []
   - id: douyin_gift_fraud
     name: 抖音代刷禮物

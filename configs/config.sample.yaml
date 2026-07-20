@@ -14,10 +14,18 @@ app:
   # 限制 Telegram Webhook body，避免超大請求耗盡記憶體。
   max_body_bytes: 1048576
 
-# zlogger 結構化日誌設定；正式環境建議使用 json。
+# zlogger 結構化日誌設定；format 是編碼格式，不是輸出目的地。
 log:
   level: info
+  # json 或 console；正式環境建議 json。
   format: json
+  # console、file 可同時啟用；file output 寫入 path/file。
+  outputs:
+    - console
+  path: ./logs
+  file: app.log
+  # 當 outputs 包含 file 時，啟動時只保留 path 中最新的 .log 檔案數量；0 表示不清理。
+  max_files: 14
 
 # PostgreSQL 與 GORM 連線池設定。
 db:

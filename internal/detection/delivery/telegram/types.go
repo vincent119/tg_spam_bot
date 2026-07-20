@@ -165,33 +165,76 @@ func (u Update) DomainMessage() (domain.Message, bool) {
 	if u.UpdateID == 0 || u.Message == nil || u.Message.From == nil || u.Message.From.IsBot || u.Message.Chat.ID == 0 || u.Message.MessageID == 0 || !u.Message.Chat.isModeratedGroup() {
 		return domain.Message{}, false
 	}
-	text := u.Message.Text
-	entities := u.Message.Entities
-	if strings.TrimSpace(text) == "" {
-		text = u.Message.Caption
-		entities = u.Message.CaptionEntities
-	}
-	if strings.TrimSpace(text) == "" {
+	text, entities, ok := u.Message.detectableText()
+	if !ok {
 		return domain.Message{}, false
 	}
+	return domain.NewMessage(domain.Message{
+		UpdateID: u.UpdateID, ChatID: u.Message.Chat.ID, MessageID: u.Message.MessageID,
+		UserID: u.Message.From.ID, Text: text, ReferenceText: u.Message.referenceText(), Entities: domainEntities(entities),
+		ReceivedAt: time.Unix(u.Message.Date, 0).UTC(),
+	}), true
+}
+
+// AutoReplyMessage 允許 sender_chat 或匿名管理員訊息觸發固定問答，但仍排除 Bot 訊息。
+func (u Update) AutoReplyMessage() (domain.Message, bool) {
+	if u.UpdateID == 0 || u.Message == nil || u.Message.Chat.ID == 0 || u.Message.MessageID == 0 || !u.Message.Chat.isModeratedGroup() {
+		return domain.Message{}, false
+	}
+	if u.Message.From != nil && u.Message.From.IsBot {
+		return domain.Message{}, false
+	}
+	actorID := int64(0)
+	if u.Message.From != nil {
+		actorID = u.Message.From.ID
+	} else if u.Message.SenderChat != nil {
+		actorID = u.Message.SenderChat.ID
+	} else {
+		return domain.Message{}, false
+	}
+	text, entities, ok := u.Message.detectableText()
+	if !ok {
+		return domain.Message{}, false
+	}
+	return domain.NewMessage(domain.Message{
+		UpdateID: u.UpdateID, ChatID: u.Message.Chat.ID, MessageID: u.Message.MessageID,
+		UserID: actorID, Text: text, ReferenceText: u.Message.referenceText(), Entities: domainEntities(entities),
+		ReceivedAt: time.Unix(u.Message.Date, 0).UTC(),
+	}), true
+}
+
+func (m Message) detectableText() (string, []MessageEntity, bool) {
+	text := m.Text
+	entities := m.Entities
+	if strings.TrimSpace(text) == "" {
+		text = m.Caption
+		entities = m.CaptionEntities
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", nil, false
+	}
+	return text, entities, true
+}
+
+func (m Message) referenceText() string {
 	referenceText := ""
-	if u.Message.Quote != nil {
-		referenceText = u.Message.Quote.Text
-	} else if reply := u.Message.ReplyToMessage; reply != nil {
+	if m.Quote != nil {
+		referenceText = m.Quote.Text
+	} else if reply := m.ReplyToMessage; reply != nil {
 		referenceText = reply.Text
 		if strings.TrimSpace(referenceText) == "" {
 			referenceText = reply.Caption
 		}
 	}
+	return referenceText
+}
+
+func domainEntities(entities []MessageEntity) []domain.Entity {
 	domainEntities := make([]domain.Entity, 0, len(entities))
 	for _, entity := range entities {
 		domainEntities = append(domainEntities, domain.Entity{Type: entity.Type, URL: entity.URL})
 	}
-	return domain.NewMessage(domain.Message{
-		UpdateID: u.UpdateID, ChatID: u.Message.Chat.ID, MessageID: u.Message.MessageID,
-		UserID: u.Message.From.ID, Text: text, ReferenceText: referenceText, Entities: domainEntities,
-		ReceivedAt: time.Unix(u.Message.Date, 0).UTC(),
-	}), true
+	return domainEntities
 }
 
 // isModeratedGroup 只接受具成員管理語意的群組，避免將私人聊天或頻道貼文送入處置流程。

@@ -182,6 +182,20 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	message, ok := update.DomainMessage()
 	if !ok {
+		if h.autoReplies != nil {
+			if message, autoReplyOK := update.AutoReplyMessage(); autoReplyOK {
+				if err := h.autoReplies.Process(ctx, message); err != nil {
+					zlogger.ErrorContext(ctx, "處理 Telegram 自動回覆失敗",
+						zlogger.String("subsystem", "webhook"),
+						zlogger.Int64("update_id", update.UpdateID),
+						zlogger.Int64("chat_id", update.Message.Chat.ID),
+						zlogger.Err(err),
+					)
+					http.Error(w, "temporary auto reply failure", http.StatusServiceUnavailable)
+					return
+				}
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

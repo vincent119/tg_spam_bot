@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,13 +45,67 @@ func execute() int {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	zlogger.Init(&zlogger.Config{Level: cfg.Log.Level, Format: cfg.Log.Format, Outputs: []string{"console"}, AddCaller: true})
+	if err := pruneLogFiles(cfg.Log.Path, cfg.Log.MaxFiles); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	zlogger.Init(&zlogger.Config{Level: cfg.Log.Level, Format: cfg.Log.Format, Outputs: cfg.Log.Outputs, LogPath: cfg.Log.Path, FileName: cfg.Log.File, AddCaller: true})
 	defer func() { _ = zlogger.Sync() }()
 	if err := run(cfg); err != nil {
 		zlogger.Error("應用程式結束", zlogger.Err(err))
 		return 1
 	}
 	return 0
+}
+
+func pruneLogFiles(dir string, maxFiles int) error {
+	if maxFiles <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read log directory: %w", err)
+	}
+	type logFile struct {
+		path    string
+		modTime time.Time
+		name    string
+	}
+	files := make([]logFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat log file %s: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, logFile{path: filepath.Join(dir, entry.Name()), modTime: info.ModTime(), name: entry.Name()})
+	}
+	slices.SortFunc(files, func(a, b logFile) int {
+		if !a.modTime.Equal(b.modTime) {
+			if a.modTime.After(b.modTime) {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.name, b.name)
+	})
+	if len(files) <= maxFiles {
+		return nil
+	}
+	for _, file := range files[maxFiles:] {
+		if err := os.Remove(file.path); err != nil {
+			return fmt.Errorf("remove old log file %s: %w", file.path, err)
+		}
+	}
+	return nil
 }
 
 func run(cfg config.Config) error {

@@ -201,6 +201,67 @@ func TestWebhookAutoReplyAfterNonSpam(t *testing.T) {
 	}
 }
 
+func TestWebhookAutoReplyForSenderChatWithoutDetection(t *testing.T) {
+	t.Parallel()
+	messages := 0
+	autoReplies := 0
+	h, err := NewWebhook(
+		"secret",
+		2048,
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			messages++
+			return detectionapp.ProcessResult{}, nil
+		}),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithAutoReplyProcessor(autoReplyProcessorFunc(func(_ context.Context, message domain.Message) error {
+			autoReplies++
+			if message.UserID != -1001 || message.Text != "下載頁" {
+				t.Fatalf("auto reply message = %+v", message)
+			}
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"update_id":16,"message":{"message_id":5,"date":1,"chat":{"id":-1001,"type":"supergroup"},"sender_chat":{"id":-1001,"type":"supergroup"},"text":"下載頁"}}`
+	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+	req.Header.Set(secretHeader, "secret")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || messages != 0 || autoReplies != 1 {
+		t.Fatalf("status=%d messages=%d autoReplies=%d", res.Code, messages, autoReplies)
+	}
+}
+
+func TestWebhookSkipsAutoReplyForBotMessage(t *testing.T) {
+	t.Parallel()
+	autoReplies := 0
+	h, err := NewWebhook(
+		"secret",
+		2048,
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			return detectionapp.ProcessResult{}, nil
+		}),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithAutoReplyProcessor(autoReplyProcessorFunc(func(context.Context, domain.Message) error {
+			autoReplies++
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"update_id":17,"message":{"message_id":6,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":99,"is_bot":true},"text":"下載頁"}}`
+	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+	req.Header.Set(secretHeader, "secret")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || autoReplies != 0 {
+		t.Fatalf("status=%d autoReplies=%d", res.Code, autoReplies)
+	}
+}
+
 func TestWebhookSkipsAutoReplyForSpamAndCommands(t *testing.T) {
 	t.Parallel()
 	autoReplies := 0
