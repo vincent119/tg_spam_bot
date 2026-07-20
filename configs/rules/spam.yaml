@@ -27,8 +27,8 @@ categories:
     threshold: 60
     weight: 40
     enabled: true
-    terms: [免費領取, 高薪兼職, 長期穩定供應, 包養, guaranteed profit, earn money fast]
-    aliases: [免费领取, 高薪兼职, 长期稳定供应, 包养]
+    terms: [免費領取, 高薪兼職, 長期穩定供應, 包養, 廣告, 群組投放, 誠招代理, 代理加入, guaranteed profit, earn money fast]
+    aliases: [免费领取, 高薪兼职, 长期稳定供应, 包养, 广告, 群组投放, 诚招代理]
     require_any: []
   - id: douyin_gift_fraud
     name: 抖音代刷禮物
