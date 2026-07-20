@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
+	"github.com/vincent119/zlogger"
 )
 
 // Processor 協調冪等占用、豁免、偵測、違規保存及 Telegram 處置。
@@ -36,6 +37,11 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 		return fmt.Errorf("claim update: %w", err)
 	}
 	if !claimed {
+		zlogger.DebugContext(ctx, "Telegram 更新已處理，略過重複請求",
+			zlogger.String("subsystem", "detection"),
+			zlogger.Int64("update_id", message.UpdateID),
+			zlogger.Int64("chat_id", message.ChatID),
+		)
 		return nil
 	}
 	completed := false
@@ -51,6 +57,12 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 		return fmt.Errorf("check exemption: %w", err)
 	}
 	if exempt {
+		zlogger.DebugContext(ctx, "成員命中豁免規則，略過垃圾訊息偵測",
+			zlogger.String("subsystem", "detection"),
+			zlogger.Int64("update_id", message.UpdateID),
+			zlogger.Int64("chat_id", message.ChatID),
+			zlogger.Int64("user_id", message.UserID),
+		)
 		completed = true
 		return p.updates.Complete(ctx, message.UpdateID)
 	}
@@ -61,6 +73,7 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 	}
 	result := p.detector.Detect(message, signals...)
 	event := Event{ID: fmt.Sprintf("tg:%d", message.UpdateID), Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, Mode: p.mode, CreatedAt: p.now().UTC()}
+	logDetectionResult(ctx, event)
 
 	if !result.Spam || p.mode == ModeObserve {
 		if err := p.violations.RecordDetection(ctx, event); err != nil {
@@ -84,6 +97,13 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) error {
 
 func (p *Processor) execute(ctx context.Context, event Event, actions []EnforcementAction) error {
 	for _, action := range actions {
+		zlogger.DebugContext(ctx, "開始執行 Telegram 處置",
+			zlogger.String("subsystem", "enforcement"),
+			zlogger.String("event_id", event.ID),
+			zlogger.Int64("chat_id", event.Message.ChatID),
+			zlogger.Int64("message_id", event.Message.MessageID),
+			zlogger.String("action", string(action.Kind)),
+		)
 		var err error
 		switch action.Kind {
 		case ActionDelete:
@@ -106,11 +126,39 @@ func (p *Processor) execute(ctx context.Context, event Event, actions []Enforcem
 		if recordErr := p.violations.CompleteAction(ctx, action.Key, result); recordErr != nil {
 			return fmt.Errorf("record action %s: %w", action.Kind, recordErr)
 		}
+		zlogger.DebugContext(ctx, "完成 Telegram 處置",
+			zlogger.String("subsystem", "enforcement"),
+			zlogger.String("event_id", event.ID),
+			zlogger.String("action", string(action.Kind)),
+			zlogger.Bool("succeeded", err == nil),
+			zlogger.Bool("retryable", result.Retryable),
+		)
 		if err != nil {
 			return fmt.Errorf("execute action %s: %w", action.Kind, err)
 		}
 	}
 	return nil
+}
+
+// logDetectionResult 只記錄判定摘要，避免將訊息原文或敏感內容寫入日誌。
+func logDetectionResult(ctx context.Context, event Event) {
+	zlogger.DebugContext(ctx, "完成垃圾訊息判定",
+		zlogger.String("subsystem", "detection"),
+		zlogger.String("event_id", event.ID),
+		zlogger.Int64("update_id", event.Message.UpdateID),
+		zlogger.Int64("chat_id", event.Message.ChatID),
+		zlogger.Int64("message_id", event.Message.MessageID),
+		zlogger.String("category_id", event.Result.CategoryID),
+		zlogger.String("severity", string(event.Result.Severity)),
+		zlogger.Int("score", event.Result.Score),
+		zlogger.Int("threshold", event.Result.Threshold),
+		zlogger.Bool("is_spam", event.Result.Spam),
+		zlogger.String("action", string(event.Result.Action)),
+		zlogger.String("mode", string(event.Mode)),
+		zlogger.String("rule_version", event.Result.RuleVersion),
+		zlogger.Int("match_count", len(event.Result.Matches)),
+		zlogger.Strings("signals", event.Result.Signals),
+	)
 }
 
 func (p *Processor) fingerprint(text string) string {
