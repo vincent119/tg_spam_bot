@@ -7,8 +7,13 @@ COPY . .
 RUN CGO_ENABLED=0 GOMAXPROCS=1 go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-bot ./cmd/tg-spam-bot
 
 FROM alpine:3.22
-# Go 的 time.LoadLocation 依賴 IANA 時區資料，runtime image 必須保留 tzdata 才能載入 Asia/Taipei。
+ARG TIMEZONE=Asia/Taipei
+ENV TZ=${TIMEZONE}
+# Go 的 time.LoadLocation 依賴 IANA 時區資料，runtime image 必須保留 tzdata 才能載入設定的時區。
 RUN apk add --no-cache tzdata \
+    && test -f "/usr/share/zoneinfo/${TZ}" \
+    && cp "/usr/share/zoneinfo/${TZ}" /etc/localtime \
+    && printf '%s\n' "${TZ}" > /etc/timezone \
     && addgroup -S app \
     && adduser -S -G app app
 WORKDIR /app
