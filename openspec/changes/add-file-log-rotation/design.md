@@ -57,36 +57,64 @@ log:
 
 ### 保留 `log.max_files` 作為過渡欄位
 
-`log.max_files` 短期保留，文件標示為 deprecated。若未設定 `log.rotate.max_backups` 且 `log.max_files > 0`，實作可將其映射為 `rotate.max_backups`。
+`log.max_files` 短期保留，文件標示為 deprecated。`log.rotate.enabled=false` 且 `log.max_files > 0` 時，保留既有啟動時 `pruneLogFiles` 清理行為。`log.rotate.enabled=true` 時，不執行 `pruneLogFiles`，避免與正式輪轉行為重疊。
 
 理由：
 
 - 避免現有部署設定立即失效。
 - 讓使用者有明確遷移路徑。
+- 正式輪轉應由 `log.rotate` 與 `lumberjack` 控制，不能再混用啟動時清理。
 
 替代方案：
 
 - 直接移除 `max_files`：風險較高，會造成現有 config 驗證或預期行為改變。
 
-### 優先在 `zlogger` 支援輪轉，必要時才在本專案封裝
+### 在本專案封裝 rotate logger 初始化
 
-優先順序：
+已確認 `github.com/vincent119/zlogger v1.0.5` 的 `Config` 沒有 writer、core 或 rotate 欄位，`zlogger.Init()` 的 file output 由套件內部以 `os.OpenFile` 建立，不能注入 `lumberjack`。`zlogger` README 也明確建議需要 log rotation 時自行建立 `zapcore`。
 
-1. 若 `zlogger` 已有或可新增 rotate config，使用 `zlogger` 原生能力。
-2. 若短期不改 `zlogger`，在本專案 logger 初始化層接入 `lumberjack` 或等價 writer。
+因此本專案採用下列策略：
+
+1. 業務程式碼繼續使用 `zlogger.InfoContext`、`zlogger.DebugContext`、`zlogger.ErrorContext` 等 facade。
+2. `log.rotate.enabled=false` 時保留現有 `zlogger.Init()` 初始化路徑。
+3. `log.rotate.enabled=true` 且 `outputs` 包含 `file` 時，在 `cmd/tg-spam-bot/logger.go` 自行建立 zap logger。
+4. rotate file writer 使用 `gopkg.in/natefinch/lumberjack.v2`。
+5. 自建 logger 完成後呼叫 `zap.ReplaceGlobals(logger)`，讓既有 zlogger facade 繼續寫到同一個 zap global logger。
 
 理由：
 
-- 輪轉是 logger 基礎設施能力，放在共用 logger 套件更一致。
-- 本專案可以先規格化 config，再決定共用套件實作位置。
+- 不需要等待或修改共用 `zlogger` 套件。
+- 封裝集中在 main 組裝層，不污染業務邏輯。
+- 既有程式碼不需要改掉 zlogger 呼叫點。
 
 替代方案：
 
+- 修改 `zlogger`：短期成本較高，且需要發新版後再回到本專案升級。
 - 使用系統 `logrotate`：部署相依性較強，且 sample config 不能完整表達應用層行為。
+- 直接全面改用 zap：改動面過大，會破壞目前 context logging facade。
+
+### 採用保守預設值與零值語意
+
+`log.rotate` 採用下列預設與零值規則：
+
+```yaml
+rotate:
+  enabled: false
+  max_size_mb: 100
+  max_backups: 14
+  max_age_days: 30
+  compress: true
+```
+
+- `enabled` 預設 `false`，避免既有 file output 部署在升級後突然改變行為。
+- `max_size_mb=0` 表示使用預設值 `100`，因為大小是輪轉的主要觸發條件。
+- `max_backups=0` 表示不限制備份數，沿用 `lumberjack` 語意。
+- `max_age_days=0` 表示不依天數刪除，沿用 `lumberjack` 語意。
+- `compress` 預設 `true`，降低長期磁碟使用量。
 
 ## Risks / Trade-offs
 
-- 新增第三方輪轉套件會增加依賴面 → 先確認 `zlogger` 是否支援或可調整，只有必要時才新增依賴。
+- 新增 `lumberjack` 會增加依賴面 → 限制使用範圍在 `cmd/tg-spam-bot/logger.go`，並以測試覆蓋初始化行為。
 - `compress=true` 會消耗 CPU → 預設可啟用，但需在正式環境觀察資源使用。
 - 依大小切檔不等於依日期切檔 → 文件需明確說明切檔條件，避免誤解。
 - 過渡支援 `max_files` 會增加設定語意複雜度 → README 與 sample config 明確標示 deprecated。
@@ -108,8 +136,3 @@ log:
    ```
 
 5. 回滾時可停用 `rotate.enabled`，保留原本 file output 行為。
-
-## Open Questions
-
-- 是否要優先修改 `github.com/vincent119/zlogger`，還是在本專案先接 `lumberjack`？
-- 預設 `rotate.enabled` 要維持 `false` 以保守相容，還是當 `outputs` 包含 `file` 時預設啟用？

@@ -37,6 +37,6 @@ categories:
     threshold: 80
     weight: 70
     enabled: true
-    terms: [抖音代刷禮物, 代刷抖音禮物, 抖音刷禮物]
-    aliases: [抖音代刷礼物, 代刷抖音礼物, 抖音刷礼物, 官方主推方向, 無門檻可做, 无门槛可做]
+    terms: [抖音代刷禮物, 代刷抖音禮物, 抖音刷禮物, 抖音禮物項目, 無需經驗, 有號就能做, 趁早上車]
+    aliases: [抖音代刷礼物, 代刷抖音礼物, 抖音刷礼物, 抖音礼物项目, 无需经验, 有号就能做, 趁早上车, 官方主推方向, 無門檻可做, 无门槛可做]
     require_any: [telegram_mention, telegram_invite, transaction_signal]

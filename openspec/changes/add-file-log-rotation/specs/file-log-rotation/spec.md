@@ -38,6 +38,26 @@ The system SHALL support file log rotation through a `log.rotate` configuration 
 - **WHEN** `log.outputs` does not contain `file`
 - **THEN** the system does not require `log.path`, `log.file`, or `log.rotate` to be valid for file writing
 
+#### Scenario: Rotation defaults
+
+- **WHEN** `log.rotate` fields are omitted
+- **THEN** the system uses `enabled=false`, `max_size_mb=100`, `max_backups=14`, `max_age_days=30`, and `compress=true` as defaults
+
+#### Scenario: Zero max size
+
+- **WHEN** `log.rotate.enabled` is `true` and `log.rotate.max_size_mb` is `0`
+- **THEN** the system uses `100` as the effective max size in megabytes
+
+#### Scenario: Zero backup count
+
+- **WHEN** `log.rotate.enabled` is `true` and `log.rotate.max_backups` is `0`
+- **THEN** the system does not limit rotated log files by backup count
+
+#### Scenario: Zero retention days
+
+- **WHEN** `log.rotate.enabled` is `true` and `log.rotate.max_age_days` is `0`
+- **THEN** the system does not delete rotated log files by age
+
 ### Requirement: Rotation validation
 
 The system SHALL validate log rotation settings during startup.
@@ -68,13 +88,13 @@ The system SHALL keep `log.max_files` as a deprecated compatibility setting duri
 
 #### Scenario: Legacy max files provided
 
-- **WHEN** `log.max_files` is greater than zero and `log.rotate.max_backups` is unset or zero
-- **THEN** the system can map `log.max_files` to the effective rotation backup count
+- **WHEN** `log.rotate.enabled` is `false` and `log.max_files` is greater than zero
+- **THEN** the system preserves the existing startup log pruning behavior
 
-#### Scenario: New rotation backup count provided
+#### Scenario: Rotation enabled with legacy max files
 
-- **WHEN** both `log.max_files` and `log.rotate.max_backups` are greater than zero
-- **THEN** the system uses `log.rotate.max_backups` as the effective rotation backup count
+- **WHEN** `log.rotate.enabled` is `true`
+- **THEN** the system does not execute the legacy startup log pruning behavior
 
 ### Requirement: Documentation for file log rotation
 
