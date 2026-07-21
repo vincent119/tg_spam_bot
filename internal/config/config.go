@@ -48,21 +48,8 @@ type Config struct {
 		// MaxBodyBytes 限制 Webhook body，避免超大請求耗盡記憶體。
 		MaxBodyBytes int64 `mapstructure:"max_body_bytes"`
 	} `mapstructure:"app"`
-	// Log 控制 zlogger 的最低等級與輸出編碼格式。
-	Log struct {
-		// Level 支援 debug、info、warn、error 及 fatal。
-		Level string `mapstructure:"level"`
-		// Format 支援 json 或 console。
-		Format string `mapstructure:"format"`
-		// Outputs 支援 console、file，可同時輸出。
-		Outputs []string `mapstructure:"outputs"`
-		// Path 是 file output 使用的 log 目錄。
-		Path string `mapstructure:"path"`
-		// File 是 file output 使用的檔名；留空時由 logger 使用日期檔名。
-		File string `mapstructure:"file"`
-		// MaxFiles 限制 Path 中保留的 .log 檔案數量；0 表示不清理。
-		MaxFiles int `mapstructure:"max_files"`
-	} `mapstructure:"log"`
+	// Log 控制 zlogger 的最低等級、輸出目的地與檔案輪轉設定。
+	Log LogConfig `mapstructure:"log"`
 	// DB 控制 PostgreSQL 連線、連線池及 TLS；URL 可整體覆寫分項設定。
 	DB struct {
 		// URL 對應 DATABASE_URL，設定後不再組合 Primary 與 TLS 欄位。
@@ -132,6 +119,38 @@ type Config struct {
 	} `mapstructure:"auto_replies"`
 }
 
+// LogConfig 描述日誌輸出格式、目的地及檔案輸出相容設定。
+type LogConfig struct {
+	// Level 支援 debug、info、warn、error 及 fatal。
+	Level string `mapstructure:"level"`
+	// Format 支援 json 或 console。
+	Format string `mapstructure:"format"`
+	// Outputs 支援 console、file，可同時輸出。
+	Outputs []string `mapstructure:"outputs"`
+	// Path 是 file output 使用的 log 目錄。
+	Path string `mapstructure:"path"`
+	// File 是 file output 使用的檔名；留空時由 logger 使用日期檔名。
+	File string `mapstructure:"file"`
+	// MaxFiles 是 deprecated 欄位；rotate 未啟用時才保留啟動清理相容行為。
+	MaxFiles int `mapstructure:"max_files"`
+	// Rotate 控制應用層檔案日誌輪轉。
+	Rotate LogRotateConfig `mapstructure:"rotate"`
+}
+
+// LogRotateConfig 描述檔案日誌輪轉行為；零值語意需由 EffectiveLogRotate 套用。
+type LogRotateConfig struct {
+	// Enabled 決定是否啟用應用層檔案日誌輪轉。
+	Enabled bool `mapstructure:"enabled"`
+	// MaxSizeMB 是單一日誌檔案大小上限；0 表示使用預設 100 MB。
+	MaxSizeMB int `mapstructure:"max_size_mb"`
+	// MaxBackups 是保留備份數量；0 表示不限制備份數。
+	MaxBackups int `mapstructure:"max_backups"`
+	// MaxAgeDays 是保留天數；0 表示不依天數刪除。
+	MaxAgeDays int `mapstructure:"max_age_days"`
+	// Compress 決定是否壓縮輪轉後的舊日誌。
+	Compress bool `mapstructure:"compress"`
+}
+
 // DBEndpoint 描述一個可供資料庫連線使用的節點。
 type DBEndpoint struct {
 	// Host 是資料庫主機名稱或 IP。
@@ -199,6 +218,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.outputs", []string{"console"})
 	v.SetDefault("log.path", "./logs")
 	v.SetDefault("log.max_files", 0)
+	v.SetDefault("log.rotate.enabled", false)
+	v.SetDefault("log.rotate.max_size_mb", 100)
+	v.SetDefault("log.rotate.max_backups", 14)
+	v.SetDefault("log.rotate.max_age_days", 30)
+	v.SetDefault("log.rotate.compress", true)
 	v.SetDefault("db.primary.host", "localhost")
 	v.SetDefault("db.primary.port", 5432)
 	v.SetDefault("db.max_open_conns", 25)
@@ -218,7 +242,10 @@ func envBindings() map[string]string {
 		"app.business_timezone": "BUSINESS_TIMEZONE", "app.read_timeout": "READ_TIMEOUT", "app.write_timeout": "WRITE_TIMEOUT",
 		"app.shutdown_timeout": "SHUTDOWN_TIMEOUT", "log.level": "LOG_LEVEL", "log.format": "LOG_FORMAT",
 		"log.outputs": "LOG_OUTPUTS", "log.path": "LOG_PATH", "log.file": "LOG_FILE", "log.max_files": "LOG_MAX_FILES",
-		"db.url": "DATABASE_URL", "db.name": "DB_NAME", "db.primary.host": "DB_HOST", "db.primary.port": "DB_PORT",
+		"log.rotate.enabled": "LOG_ROTATE_ENABLED", "log.rotate.max_size_mb": "LOG_ROTATE_MAX_SIZE_MB",
+		"log.rotate.max_backups": "LOG_ROTATE_MAX_BACKUPS", "log.rotate.max_age_days": "LOG_ROTATE_MAX_AGE_DAYS",
+		"log.rotate.compress": "LOG_ROTATE_COMPRESS",
+		"db.url":              "DATABASE_URL", "db.name": "DB_NAME", "db.primary.host": "DB_HOST", "db.primary.port": "DB_PORT",
 		"db.primary.user": "DB_USER", "db.primary.password": "DB_PASSWORD", "telegram.bot_token": "TELEGRAM_BOT_TOKEN",
 		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
 		"redis.addr":     "REDIS_ADDR",
@@ -264,6 +291,15 @@ func (c Config) RedisPassword() string {
 	return c.Redis.RequirePass
 }
 
+// EffectiveLogRotate 回傳套用零值語意後的檔案輪轉設定。
+func (c Config) EffectiveLogRotate() LogRotateConfig {
+	rotate := c.Log.Rotate
+	if rotate.MaxSizeMB == 0 {
+		rotate.MaxSizeMB = 100
+	}
+	return rotate
+}
+
 func setQueryIfNotEmpty(values url.Values, key, value string) {
 	if value != "" {
 		values.Set(key, value)
@@ -301,6 +337,15 @@ func (c Config) Validate() error {
 	}
 	if c.Log.MaxFiles < 0 {
 		errs = append(errs, errors.New("log.max_files: must not be negative"))
+	}
+	if c.Log.Rotate.MaxSizeMB < 0 {
+		errs = append(errs, errors.New("log.rotate.max_size_mb: must not be negative"))
+	}
+	if c.Log.Rotate.MaxBackups < 0 {
+		errs = append(errs, errors.New("log.rotate.max_backups: must not be negative"))
+	}
+	if c.Log.Rotate.MaxAgeDays < 0 {
+		errs = append(errs, errors.New("log.rotate.max_age_days: must not be negative"))
 	}
 	if c.DB.URL == "" && (c.DB.Name == "" || c.DB.Primary.Host == "" || c.DB.Primary.User == "" || c.DB.Primary.Password == "") {
 		errs = append(errs, errors.New("db: name, primary host, user and password are required when DATABASE_URL is empty"))

@@ -19,6 +19,8 @@ RUN apk add --no-cache tzdata \
 WORKDIR /app
 COPY --from=build /out/tg-spam-bot /app/tg-spam-bot
 COPY configs /app/configs
+RUN mkdir -p /app/logs \
+    && chown -R app:app /app/logs
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/health/ready || exit 1

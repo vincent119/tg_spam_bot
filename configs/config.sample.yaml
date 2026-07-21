@@ -24,8 +24,18 @@ log:
     - console
   path: ./logs
   file: app.log
-  # 當 outputs 包含 file 時，啟動時只保留 path 中最新的 .log 檔案數量；0 表示不清理。
+  # Deprecated：未啟用 rotate 時，啟動時只保留 path 中最新的 .log 檔案數量；0 表示不清理。
   max_files: 14
+  # 檔案日誌輪轉只在 outputs 包含 file 且 enabled=true 時生效。
+  rotate:
+    enabled: false
+    # 0 表示使用預設 100 MB。
+    max_size_mb: 100
+    # 0 表示不限制備份數。
+    max_backups: 14
+    # 0 表示不依天數刪除。
+    max_age_days: 30
+    compress: true
 
 # PostgreSQL 與 GORM 連線池設定。
 db:

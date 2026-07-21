@@ -338,6 +338,49 @@ rules:
 | `REDIS_DB` | Redis logical database | 否，預設 `0` |
 | `CONTENT_HASH_KEY` | 產生不可逆內容指紋的金鑰 | 是，至少 32 字元 |
 | `RULES_DIR` | 規則 YAML 目錄 | 否 |
+| `LOG_LEVEL` | 日誌等級，例如 `debug`、`info` | 否，預設 `info` |
+| `LOG_FORMAT` | 日誌編碼格式，支援 `json` 或 `console` | 否，預設 `json` |
+| `LOG_OUTPUTS` | 日誌輸出目的地，支援 `console`、`file` | 否，預設 `console` |
+| `LOG_PATH` | file output 使用的日誌目錄 | 否，預設 `./logs` |
+| `LOG_FILE` | file output 使用的日誌檔名 | 否，預設由 logger 決定 |
+| `LOG_MAX_FILES` | Deprecated；未啟用 rotate 時，啟動時保留的 `.log` 檔案數量 | 否，預設 `0` |
+| `LOG_ROTATE_ENABLED` | 是否啟用應用層檔案日誌輪轉 | 否，預設 `false` |
+| `LOG_ROTATE_MAX_SIZE_MB` | 單一日誌檔案大小上限；`0` 表示使用預設 `100` | 否，預設 `100` |
+| `LOG_ROTATE_MAX_BACKUPS` | 保留輪轉備份數；`0` 表示不限制備份數 | 否，預設 `14` |
+| `LOG_ROTATE_MAX_AGE_DAYS` | 保留輪轉日誌天數；`0` 表示不依天數刪除 | 否，預設 `30` |
+| `LOG_ROTATE_COMPRESS` | 是否壓縮輪轉後的舊日誌 | 否，預設 `true` |
+
+### 日誌設定
+
+`log.format` 只控制日誌內容格式，支援 `json` 與 `console`。`log.outputs` 控制輸出目的地，支援 `console` 與 `file`，兩者可以同時啟用。
+
+```yaml
+log:
+  level: info
+  format: json
+  outputs:
+    - console
+    - file
+  path: ./logs
+  file: app.log
+```
+
+檔案日誌輪轉由 `log.rotate` 控制，只有 `outputs` 包含 `file` 且 `rotate.enabled=true` 時才生效：
+
+```yaml
+log:
+  outputs:
+    - console
+    - file
+  rotate:
+    enabled: true
+    max_size_mb: 100
+    max_backups: 14
+    max_age_days: 30
+    compress: true
+```
+
+`log.max_files` 是 deprecated 相容欄位。`rotate.enabled=false` 且 `max_files>0` 時，服務啟動時仍會保留最新的 `.log` 檔案並清理較舊檔案；`rotate.enabled=true` 時不會執行這個舊清理流程，避免與正式輪轉重疊。
 
 Redis Client 優先使用 `REDIS_PASSWORD`，只有其為空時才使用 `REDIS_REQUIREPASS`。`requirepass` 原本是 Redis Server 設定名稱，保留此欄位只為相容既有部署命名。
 

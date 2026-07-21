@@ -24,6 +24,10 @@ func TestValidate(t *testing.T) {
 	valid.Log.Format = "json"
 	valid.Log.Outputs = []string{"console"}
 	valid.Log.Path = "./logs"
+	valid.Log.Rotate.MaxSizeMB = 100
+	valid.Log.Rotate.MaxBackups = 14
+	valid.Log.Rotate.MaxAgeDays = 30
+	valid.Log.Rotate.Compress = true
 	valid.Telegram.BotToken = "token"
 	valid.Telegram.WebhookSecret = "secret"
 	valid.Telegram.AllowedChatIDs = []int64{-1001234567890}
@@ -50,6 +54,12 @@ func TestValidate(t *testing.T) {
 		{name: "missing log outputs", mutate: func(c *Config) { c.Log.Outputs = nil }, wantErr: true},
 		{name: "invalid log output", mutate: func(c *Config) { c.Log.Outputs = []string{"console", "bad"} }, wantErr: true},
 		{name: "negative log max files", mutate: func(c *Config) { c.Log.MaxFiles = -1 }, wantErr: true},
+		{name: "negative log rotate max size", mutate: func(c *Config) { c.Log.Rotate.MaxSizeMB = -1 }, wantErr: true},
+		{name: "negative log rotate max backups", mutate: func(c *Config) { c.Log.Rotate.MaxBackups = -1 }, wantErr: true},
+		{name: "negative log rotate max age", mutate: func(c *Config) { c.Log.Rotate.MaxAgeDays = -1 }, wantErr: true},
+		{name: "zero log rotate max size allowed", mutate: func(c *Config) { c.Log.Rotate.MaxSizeMB = 0 }},
+		{name: "zero log rotate max backups allowed", mutate: func(c *Config) { c.Log.Rotate.MaxBackups = 0 }},
+		{name: "zero log rotate max age allowed", mutate: func(c *Config) { c.Log.Rotate.MaxAgeDays = 0 }},
 		{name: "enabled auto replies missing rules file", mutate: func(c *Config) { c.AutoReplies.Enabled = true }, wantErr: true},
 		{name: "enabled auto replies with rules file", mutate: func(c *Config) {
 			c.AutoReplies.Enabled = true
@@ -96,6 +106,12 @@ log:
   path: ./logs
   file: app.log
   max_files: 14
+  rotate:
+    enabled: true
+    max_size_mb: 0
+    max_backups: 0
+    max_age_days: 0
+    compress: false
 db:
   name: tg_spam
   primary:
@@ -128,6 +144,12 @@ auto_replies:
 	}
 	if len(cfg.Log.Outputs) != 2 || cfg.Log.Outputs[1] != "file" || cfg.Log.Path != "./logs" || cfg.Log.File != "app.log" || cfg.Log.MaxFiles != 14 {
 		t.Fatalf("未正確載入 log 設定：%+v", cfg.Log)
+	}
+	if !cfg.Log.Rotate.Enabled || cfg.Log.Rotate.MaxSizeMB != 0 || cfg.Log.Rotate.MaxBackups != 0 || cfg.Log.Rotate.MaxAgeDays != 0 || cfg.Log.Rotate.Compress {
+		t.Fatalf("未正確載入 log rotate 設定：%+v", cfg.Log.Rotate)
+	}
+	if effective := cfg.EffectiveLogRotate(); effective.MaxSizeMB != 100 || effective.MaxBackups != 0 || effective.MaxAgeDays != 0 || effective.Compress {
+		t.Fatalf("未正確套用 log rotate 有效值：%+v", effective)
 	}
 	if len(cfg.Telegram.AllowedChatIDs) != 2 || cfg.Telegram.AllowedChatIDs[0] != -1001234567890 {
 		t.Fatalf("未正確載入 Telegram 允許群組：%+v", cfg.Telegram.AllowedChatIDs)

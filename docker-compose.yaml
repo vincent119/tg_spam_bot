@@ -53,6 +53,7 @@ services:
       retries: 3
     volumes:
       - ./configs:/app/configs:ro
+      - ./logs:/app/logs
     restart: unless-stopped
     stop_grace_period: 40s
     networks: [backend]

@@ -45,12 +45,12 @@ func execute() int {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := pruneLogFiles(cfg.Log.Path, cfg.Log.MaxFiles); err != nil {
+	syncLogger, err := initializeLogger(cfg)
+	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	zlogger.Init(&zlogger.Config{Level: cfg.Log.Level, Format: cfg.Log.Format, Outputs: cfg.Log.Outputs, LogPath: cfg.Log.Path, FileName: cfg.Log.File, AddCaller: true})
-	defer func() { _ = zlogger.Sync() }()
+	defer func() { _ = syncLogger() }()
 	if err := run(cfg); err != nil {
 		zlogger.Error("應用程式結束", zlogger.Err(err))
 		return 1
