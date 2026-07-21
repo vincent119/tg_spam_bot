@@ -60,7 +60,22 @@
 - [x] 8.2 提供 BotFather `/setcommands` 的繁體中文指令清單及更新步驟
 - [x] 8.3 補充 PostgreSQL schema 變更、AutoMigrate 部署前備份驗證與回滾說明
 - [x] 8.4 執行 `gofmt -s`、`go vet ./...`、lint、`go test -race -count=1 ./...`、coverage、關鍵 parser fuzz／benchmark
-- [ ] 8.5 在測試 supergroup 逐項驗證 11 個指令、權限撤銷、受保護目標、Webhook 重送及 Telegram API 權限錯誤
+- [ ] 8.5 在測試 supergroup 完成管理指令實機驗證
+  - [x] 8.5.1 驗證 `/help` 可正常回覆可用指令清單
+  - [x] 8.5.2 驗證 `/ping` 可正常回覆 Bot 存活狀態
+  - [x] 8.5.3 驗證 `/id` 可正常回覆群組與使用者 ID
+  - [x] 8.5.4 驗證 `/warnings` 可查詢目標最近 30 天警告摘要
+  - [x] 8.5.5 驗證 `/warn` 可新增人工警告並推進最近 30 天計數
+  - [x] 8.5.6 驗證 `/clearwarn` 可失效目前有效警告
+  - [x] 8.5.7 驗證 `/del` 可刪除被回覆訊息，且未回覆時回傳用法錯誤
+  - [x] 8.5.8 驗證 `/mute` 可禁言目標，且錯誤時間格式回傳驗證錯誤
+  - [x] 8.5.9 驗證 `/unmute` 可解除目標禁言
+  - [x] 8.5.10 驗證 `/ban` 可封鎖目標
+  - [x] 8.5.11 驗證 `/unban` 可解除目標封鎖
+  - [ ] 8.5.12 驗證操作者管理員權限撤銷後，管理指令會被拒絕且不產生副作用
+  - [ ] 8.5.13 驗證管理員、Bot、可信任成員或匿名 sender chat 等受保護目標會被拒絕
+  - [ ] 8.5.14 驗證相同 Webhook `update_id` 重送不會重複警告、刪除、禁言、封鎖或解除處置
+  - [ ] 8.5.15 驗證 Telegram API 權限錯誤會落入稽核紀錄，例如缺少 `can_delete_messages` 或 `can_restrict_members`
 
 ## 9. 結構化日誌修正
 
