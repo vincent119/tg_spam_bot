@@ -34,6 +34,8 @@ const (
 	NameBan Name = "ban"
 	// NameUnban 解除成員封鎖。
 	NameUnban Name = "unban"
+	// NameFeedSpam 提交漏網垃圾樣本供語意記憶使用。
+	NameFeedSpam Name = "feedspam"
 )
 
 // User 保存指令授權及目標保護需要的最小 Telegram 使用者資訊。
@@ -106,6 +108,7 @@ type Command struct {
 	Actor         Actor
 	Target        *Target
 	TargetMessage int64
+	TargetText    string
 	Name          Name
 	Args          string
 }
@@ -117,6 +120,7 @@ func NewCommand(command Command) (Command, error) {
 	}
 	command.Actor.Username = strings.Clone(command.Actor.Username)
 	command.Args = strings.Clone(strings.TrimSpace(command.Args))
+	command.TargetText = strings.Clone(strings.TrimSpace(command.TargetText))
 	if command.Target != nil {
 		target := *command.Target
 		target.Username = strings.Clone(target.Username)
@@ -148,6 +152,7 @@ func Definitions() []Definition {
 		{Name: NameUnmute, AdminOnly: true, RequiresReply: true, Usage: "/unmute（回覆成員訊息）", Description: "解除禁言"},
 		{Name: NameBan, AdminOnly: true, RequiresReply: true, Usage: "/ban [原因]（回覆成員訊息）", Description: "封鎖成員"},
 		{Name: NameUnban, AdminOnly: true, Usage: "/unban <user_id> 或回覆訊息", Description: "解除封鎖"},
+		{Name: NameFeedSpam, AdminOnly: true, RequiresReply: true, Usage: "/feedspam [分類]（回覆漏網垃圾訊息）", Description: "提交漏網垃圾樣本"},
 	}
 }
 
@@ -168,6 +173,24 @@ func ParseReason(value string) (Reason, error) {
 		return "", invalidInput("原因不得超過 200 個字元")
 	}
 	return Reason(reason), nil
+}
+
+// ParseFeedSpamCategory 驗證人工提交樣本分類，避免任意長文字進入稽核欄位。
+func ParseFeedSpamCategory(value string) (string, error) {
+	category := strings.TrimSpace(value)
+	if category == "" {
+		return "uncategorized_spam", nil
+	}
+	if utf8.RuneCountInString(category) > 64 {
+		return "", invalidInput("分類不得超過 64 個字元")
+	}
+	for _, r := range category {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			continue
+		}
+		return "", invalidInput("分類只能包含英文字母、數字、底線或連字號")
+	}
+	return strings.ToLower(category), nil
 }
 
 // ParseDuration 支援管理員易讀的 m、h、d 單位，並限制一分鐘至七天。

@@ -46,8 +46,10 @@ func TestStoreIntegration(t *testing.T) {
 		_ = cleanup.Where("event_id LIKE ?", fmt.Sprintf("it-%d-%%", seed)).Delete(&enforcementAction{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&violation{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&detectionEvent{}).Error
+		_ = cleanup.Where("chat_id = ?", chatID).Delete(&aiDetectionEvent{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&commandExecution{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&autoReplyExecution{}).Error
+		_ = cleanup.Where("chat_id = ?", chatID).Delete(&semanticManualSample{}).Error
 		_ = cleanup.Where("chat_id = ?", chatID).Delete(&trustedMember{}).Error
 	})
 
@@ -112,6 +114,116 @@ func TestStoreIntegration(t *testing.T) {
 	}
 	if err := store.RecordDetection(ctx, observeEvent); err != nil {
 		t.Fatal(err)
+	}
+
+	manualSample, created, err := store.CreateManualSample(ctx, application.ManualSample{
+		ChatID: chatID, MessageID: 900, TargetUserID: userID, OperatorID: seed + 3,
+		ContentFingerprint: "manual-fingerprint", Label: domain.AILabelSpam,
+		Category: "uncategorized_spam", Source: "feedspam", CreatedAt: time.Now().UTC(),
+	})
+	if err != nil || !created || manualSample.Status != application.ManualSampleStatusPendingEmbedding {
+		t.Fatalf("CreateManualSample()=%+v created=%v err=%v", manualSample, created, err)
+	}
+	replayedSample, created, err := store.CreateManualSample(ctx, application.ManualSample{
+		ChatID: chatID, MessageID: 900, TargetUserID: userID, OperatorID: seed + 4,
+		ContentFingerprint: "manual-fingerprint", Label: domain.AILabelSpam,
+		Category: "other", Source: "feedspam", CreatedAt: time.Now().UTC(),
+	})
+	if err != nil || created || replayedSample.ID != manualSample.ID {
+		t.Fatalf("重複 CreateManualSample()=%+v created=%v err=%v", replayedSample, created, err)
+	}
+	pending, err := store.PendingManualSamples(ctx, 10)
+	if err != nil || len(pending) == 0 {
+		t.Fatalf("PendingManualSamples()=%+v err=%v", pending, err)
+	}
+	if err := store.MarkManualSampleEmbeddingFailed(ctx, manualSample.ID, "provider_timeout", "temporary", true); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = store.PendingManualSamples(ctx, 10)
+	if err != nil || len(pending) == 0 {
+		t.Fatalf("retryable PendingManualSamples()=%+v err=%v", pending, err)
+	}
+	if err := store.MarkManualSampleEmbeddingCompleted(ctx, manualSample.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = store.PendingManualSamples(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range pending {
+		if item.ID == manualSample.ID {
+			t.Fatalf("完成樣本不應仍在 pending：%+v", pending)
+		}
+	}
+	var manualSensitiveColumnCount int64
+	if err := db.Raw(`
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'semantic_manual_samples'
+		  AND column_name IN ('text', 'message_text', 'raw_text', 'raw_response', 'api_key', 'bot_token', 'webhook_secret')
+	`).Scan(&manualSensitiveColumnCount).Error; err != nil || manualSensitiveColumnCount != 0 {
+		t.Fatalf("semantic_manual_samples 敏感欄位數=%d err=%v", manualSensitiveColumnCount, err)
+	}
+
+	aiEvent := application.AIDetectionEvent{
+		ChatID: chatID, UpdateID: seed + 800, MessageID: 800, UserID: userID,
+		ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "classifier",
+		PromptVersion: "ai-spam-v1", SchemaVersion: "v1", RuleVersion: "it", CreatedAt: time.Now().UTC(),
+	}
+	aiClaim, err := store.ClaimAIDetection(ctx, aiEvent)
+	if err != nil || !aiClaim.Acquired {
+		t.Fatalf("ClaimAIDetection()=%+v, %v", aiClaim, err)
+	}
+	aiResult := domain.AIClassifyResult{
+		Label: domain.AILabelSpam, Category: "ad", Confidence: 0.91,
+		ConfidenceSource: domain.AIConfidenceModelReported, ReasonCode: "commercial_solicitation",
+		Evidence: []string{"導流摘要"}, SafeAction: domain.AISafeActionDelete, PromptVersion: "ai-spam-v1",
+	}
+	if err := store.CompleteAIDetection(ctx, aiEvent, aiResult); err != nil {
+		t.Fatal(err)
+	}
+	aiClaim, err = store.ClaimAIDetection(ctx, aiEvent)
+	if err != nil || aiClaim.Acquired || aiClaim.Existing == nil || aiClaim.Existing.Status != "completed" || aiClaim.Existing.Result.Label != domain.AILabelSpam {
+		t.Fatalf("重複 ClaimAIDetection()=%+v, %v", aiClaim, err)
+	}
+	cachedAI, found, err := store.FindCachedAIDetection(ctx, application.AIDetectionCacheKey{
+		ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "classifier",
+		PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC(),
+	})
+	if err != nil || !found || cachedAI.Result.ReasonCode != "commercial_solicitation" {
+		t.Fatalf("FindCachedAIDetection()=%+v found=%v err=%v", cachedAI, found, err)
+	}
+	_, found, err = store.FindCachedAIDetection(ctx, application.AIDetectionCacheKey{
+		ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "other",
+		PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC(),
+	})
+	if err != nil || found {
+		t.Fatalf("不同模型不應命中快取：found=%v err=%v", found, err)
+	}
+	retryAIEvent := application.AIDetectionEvent{
+		ChatID: chatID, UpdateID: seed + 801, MessageID: 801, UserID: userID,
+		ContentFingerprint: "retry-ai-fingerprint", Provider: "bedrock", Model: "classifier",
+		PromptVersion: "ai-spam-v1", SchemaVersion: "v1", RuleVersion: "it", CreatedAt: time.Now().UTC(),
+	}
+	retryAIClaim, err := store.ClaimAIDetection(ctx, retryAIEvent)
+	if err != nil || !retryAIClaim.Acquired {
+		t.Fatalf("retry ClaimAIDetection()=%+v, %v", retryAIClaim, err)
+	}
+	if err := store.FailAIDetection(ctx, retryAIEvent, application.AIDetectionResult{Status: "failed", ErrorCode: "provider_timeout", ErrorText: "temporary", Retryable: true}); err != nil {
+		t.Fatal(err)
+	}
+	retryAIClaim, err = store.ClaimAIDetection(ctx, retryAIEvent)
+	if err != nil || !retryAIClaim.Acquired {
+		t.Fatalf("retryable ClaimAIDetection()=%+v, %v", retryAIClaim, err)
+	}
+	var sensitiveColumnCount int64
+	if err := db.Raw(`
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'ai_detection_events'
+		  AND column_name IN ('text', 'message_text', 'raw_response', 'api_key', 'bot_token', 'webhook_secret')
+	`).Scan(&sensitiveColumnCount).Error; err != nil || sensitiveColumnCount != 0 {
+		t.Fatalf("ai_detection_events 敏感欄位數=%d err=%v", sensitiveColumnCount, err)
 	}
 
 	var firstAction application.EnforcementAction

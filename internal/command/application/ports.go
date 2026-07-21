@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
 )
 
 // Telegram 提供管理指令所需的最小 Bot API 集合。
@@ -38,6 +39,11 @@ type ExecutionStore interface {
 	Warnings(ctx context.Context, chatID, userID int64, since time.Time) (WarningSummary, error)
 	AddManualWarning(ctx context.Context, command domain.Command, reason domain.Reason, occurredAt time.Time) (WarningSummary, error)
 	ClearWarnings(ctx context.Context, command domain.Command, reason domain.Reason, invalidatedAt time.Time) (int64, error)
+}
+
+// FeedSpamSubmitter 同步保存 `/feedspam` 樣本與 embedding，不保存完整原文。
+type FeedSpamSubmitter interface {
+	SubmitSpam(ctx context.Context, input detectionapp.ManualFeedInput) (detectionapp.ManualSample, bool, error)
 }
 
 // Clock 讓指令的 UTC 到期時間與 30 天視窗可決定性測試。

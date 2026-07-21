@@ -130,6 +130,11 @@ func run(cfg config.Config) error {
 	if err := pgstore.AutoMigrate(ctx, db); err != nil {
 		return err
 	}
+	if cfg.SemanticMemory.Enabled {
+		if err := pgstore.AutoMigrateSemanticMemory(ctx, db); err != nil {
+			return err
+		}
+	}
 	zlogger.InfoContext(ctx, "資料庫結構同步完成",
 		zlogger.String("subsystem", "database"),
 		zlogger.String("operation", "auto_migrate"),
@@ -148,6 +153,13 @@ func run(cfg config.Config) error {
 	}()
 	postgresStore, err := pgstore.NewStore(db)
 	if err != nil {
+		return err
+	}
+	aiComponents, err := buildAIComponents(ctx, cfg, postgresStore)
+	if err != nil {
+		return err
+	}
+	if err := validateAIComponents(cfg, aiComponents); err != nil {
 		return err
 	}
 	redisClient := redislib.NewClient(&redislib.Options{
@@ -188,12 +200,20 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	processor := application.NewProcessor(detector, postgresStore, exemptions, behaviors, postgresStore, telegram, application.Mode(cfg.App.Mode), []byte(cfg.Security.ContentHashKey))
+	processorOptions := []application.ProcessorOption{}
+	if aiComponents.processor != nil {
+		processorOptions = append(processorOptions, application.WithAIDetectionProcessor(aiComponents.processor))
+	}
+	processor := application.NewProcessor(detector, postgresStore, exemptions, behaviors, postgresStore, telegram, application.Mode(cfg.App.Mode), []byte(cfg.Security.ContentHashKey), processorOptions...)
 	commandLimiter, err := commandredis.NewLimiter(redisClient, 5, 30*time.Second)
 	if err != nil {
 		return err
 	}
-	commandHandler, err := commandapp.NewHandler(telegram, postgresStore, postgresStore, commandLimiter, identity.ID)
+	commandOptions := []commandapp.Option{}
+	if aiComponents.feedSpamService != nil {
+		commandOptions = append(commandOptions, commandapp.WithFeedSpamSubmitter(aiComponents.feedSpamService, []byte(cfg.Security.ContentHashKey), cfg.AIDetection.MaxTextChars, cfg.SemanticMemory.CacheTTL))
+	}
+	commandHandler, err := commandapp.NewHandler(telegram, postgresStore, postgresStore, commandLimiter, identity.ID, commandOptions...)
 	if err != nil {
 		return err
 	}

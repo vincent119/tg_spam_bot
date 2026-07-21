@@ -125,10 +125,10 @@ func AutoMigrate(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return errors.New("gorm db is required")
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&processedUpdate{}, &detectionEvent{}, &violation{}, &enforcementAction{}, &trustedMember{}, &commandExecution{}, &autoReplyExecution{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&processedUpdate{}, &detectionEvent{}, &violation{}, &enforcementAction{}, &trustedMember{}, &commandExecution{}, &autoReplyExecution{}, &aiDetectionEvent{}, &semanticManualSample{}); err != nil {
 		return fmt.Errorf("auto migrate detection schema: %w", err)
 	}
-	comments := map[string]string{"processed_updates": "Telegram 更新冪等紀錄", "detection_events": "垃圾訊息偵測事件", "violations": "成員違規紀錄", "enforcement_actions": "Telegram 處置執行紀錄", "trusted_members": "可信任成員名單", "command_executions": "Telegram 人工管理指令與稽核紀錄", "auto_reply_executions": "Telegram 自動回覆執行與稽核紀錄"}
+	comments := map[string]string{"processed_updates": "Telegram 更新冪等紀錄", "detection_events": "垃圾訊息偵測事件", "violations": "成員違規紀錄", "enforcement_actions": "Telegram 處置執行紀錄", "trusted_members": "可信任成員名單", "command_executions": "Telegram 人工管理指令與稽核紀錄", "auto_reply_executions": "Telegram 自動回覆執行與稽核紀錄", "ai_detection_events": "AI 垃圾訊息判定與錯誤稽核紀錄", "semantic_manual_samples": "管理員提交的語意垃圾樣本摘要"}
 	for table, comment := range comments {
 		query := fmt.Sprintf("COMMENT ON TABLE %s IS '%s'", table, strings.ReplaceAll(comment, "'", "''"))
 		if err := db.WithContext(ctx).Exec(query).Error; err != nil {

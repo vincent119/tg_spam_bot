@@ -25,6 +25,26 @@ const (
 	ModeEnforce Mode = "enforce"
 )
 
+// AIProvider 定義 AI classifier 或 embedding adapter 的供應商類型。
+type AIProvider string
+
+const (
+	// AIProviderOpenAICompatible 使用 OpenAI-compatible HTTP API 與 API key。
+	AIProviderOpenAICompatible AIProvider = "openai_compatible"
+	// AIProviderBedrock 使用 AWS Bedrock 與 AWS credential chain。
+	AIProviderBedrock AIProvider = "bedrock"
+)
+
+// BedrockAuthMode 定義 Bedrock adapter 的 credential 來源。
+type BedrockAuthMode string
+
+const (
+	// BedrockAuthModeIAMRole 透過 AWS SDK credential chain 使用 IAM Role。
+	BedrockAuthModeIAMRole BedrockAuthMode = "iam_role"
+	// BedrockAuthModeStaticKeys 透過明確 access key pair 呼叫 Bedrock。
+	BedrockAuthModeStaticKeys BedrockAuthMode = "static_keys"
+)
+
 // Config 集中描述應用程式所有可由 YAML 或環境變數提供的設定。
 type Config struct {
 	// App 控制執行環境、HTTP 生命週期及垃圾訊息處置模式。
@@ -119,6 +139,10 @@ type Config struct {
 		// RulesFile 是獨立自動回覆 YAML 規則檔路徑。
 		RulesFile string `mapstructure:"rules_file"`
 	} `mapstructure:"auto_replies"`
+	// AIDetection 控制外部 AI classifier 輔助偵測；預設停用。
+	AIDetection AIDetectionConfig `mapstructure:"ai_detection"`
+	// SemanticMemory 控制 pgvector 語意記憶與 embedding 查詢；預設停用。
+	SemanticMemory SemanticMemoryConfig `mapstructure:"semantic_memory"`
 }
 
 // LogConfig 描述日誌輸出格式、目的地及檔案輸出相容設定。
@@ -151,6 +175,82 @@ type LogRotateConfig struct {
 	MaxAgeDays int `mapstructure:"max_age_days"`
 	// Compress 決定是否壓縮輪轉後的舊日誌。
 	Compress bool `mapstructure:"compress"`
+}
+
+// AIDetectionConfig 描述 AI classifier 輔助判定設定；provider credential 需分開驗證。
+type AIDetectionConfig struct {
+	// Enabled 決定是否啟用 AI classifier。
+	Enabled bool `mapstructure:"enabled"`
+	// Mode 限制 AI 結果可影響的處置範圍。
+	Mode Mode `mapstructure:"mode"`
+	// Provider 決定使用哪個 classifier adapter。
+	Provider AIProvider `mapstructure:"provider"`
+	// Timeout 限制單次 provider 呼叫時間。
+	Timeout time.Duration `mapstructure:"timeout"`
+	// MaxTextChars 限制送給 provider 的文字長度。
+	MaxTextChars int `mapstructure:"max_text_chars"`
+	// MinConfidence 是 spam 結果可被採用的最低信心分數。
+	MinConfidence float64 `mapstructure:"min_confidence"`
+	// OnlyWhenAmbiguous 限制 AI 只處理規則模糊區間。
+	OnlyWhenAmbiguous bool `mapstructure:"only_when_ambiguous"`
+	// CacheTTL 控制 AI 判定快取保存時間。
+	CacheTTL time.Duration `mapstructure:"cache_ttl"`
+	// OpenAICompatible 保存 OpenAI-compatible provider 設定。
+	OpenAICompatible OpenAICompatibleConfig `mapstructure:"openai_compatible"`
+	// Bedrock 保存 AWS Bedrock provider 設定。
+	Bedrock BedrockConfig `mapstructure:"bedrock"`
+}
+
+// SemanticMemoryConfig 描述 pgvector 語意記憶與 embedding provider 設定。
+type SemanticMemoryConfig struct {
+	// Enabled 決定是否啟用語意記憶查詢。
+	Enabled bool `mapstructure:"enabled"`
+	// EmbeddingProvider 決定使用哪個 embedding adapter。
+	EmbeddingProvider AIProvider `mapstructure:"embedding_provider"`
+	// EmbeddingVersion 區分同一模型的向量版本或 prompt/schema 版本。
+	EmbeddingVersion string `mapstructure:"embedding_version"`
+	// EmbeddingDimensions 是 provider 回傳 vector 的預期維度；0 表示 adapter 首次結果決定。
+	EmbeddingDimensions int `mapstructure:"embedding_dimensions"`
+	// SimilarityThreshold 是一般相似案例門檻。
+	SimilarityThreshold float64 `mapstructure:"similarity_threshold"`
+	// SpamSimilarityThreshold 是 spam 樣本相似門檻。
+	SpamSimilarityThreshold float64 `mapstructure:"spam_similarity_threshold"`
+	// HamSimilarityThreshold 是 ham 樣本相似門檻。
+	HamSimilarityThreshold float64 `mapstructure:"ham_similarity_threshold"`
+	// MaxNeighbors 限制單次相似查詢回傳筆數。
+	MaxNeighbors int `mapstructure:"max_neighbors"`
+	// CacheTTL 控制 embedding 或相似查詢快取保存時間。
+	CacheTTL time.Duration `mapstructure:"cache_ttl"`
+	// OpenAICompatible 保存 OpenAI-compatible embedding provider 設定。
+	OpenAICompatible OpenAICompatibleConfig `mapstructure:"openai_compatible"`
+	// Bedrock 保存 AWS Bedrock embedding provider 設定。
+	Bedrock BedrockConfig `mapstructure:"bedrock"`
+}
+
+// OpenAICompatibleConfig 描述 OpenAI-compatible HTTP provider 的最小設定。
+type OpenAICompatibleConfig struct {
+	// Endpoint 是 provider HTTP API base URL。
+	Endpoint string `mapstructure:"endpoint"`
+	// Model 是 classifier 或 embedding 模型名稱。
+	Model string `mapstructure:"model"`
+	// APIKey 必須由環境變數或 Secret Manager 注入。
+	APIKey string `mapstructure:"api_key"`
+}
+
+// BedrockConfig 描述 AWS Bedrock provider 的區域、模型與 credential 模式。
+type BedrockConfig struct {
+	// Region 是 AWS Bedrock 呼叫區域。
+	Region string `mapstructure:"region"`
+	// ModelID 是 Bedrock model id。
+	ModelID string `mapstructure:"model_id"`
+	// AuthMode 決定使用 IAM Role 或 static keys。
+	AuthMode BedrockAuthMode `mapstructure:"auth_mode"`
+	// AccessKeyID 僅 static_keys 模式需要，必須由環境變數或 Secret Manager 注入。
+	AccessKeyID string `mapstructure:"access_key_id"`
+	// SecretAccessKey 僅 static_keys 模式需要，必須由環境變數或 Secret Manager 注入。
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	// SessionToken 是 AWS temporary credential 的可選 token。
+	SessionToken string `mapstructure:"session_token"`
 }
 
 // DBEndpoint 描述一個可供資料庫連線使用的節點。
@@ -234,6 +334,23 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("rules.dir", "configs/rules")
 	v.SetDefault("auto_replies.enabled", false)
+	v.SetDefault("ai_detection.enabled", false)
+	v.SetDefault("ai_detection.mode", ModeObserve)
+	v.SetDefault("ai_detection.timeout", 3*time.Second)
+	v.SetDefault("ai_detection.max_text_chars", 800)
+	v.SetDefault("ai_detection.min_confidence", 0.85)
+	v.SetDefault("ai_detection.only_when_ambiguous", true)
+	v.SetDefault("ai_detection.cache_ttl", 24*time.Hour)
+	v.SetDefault("ai_detection.bedrock.auth_mode", BedrockAuthModeIAMRole)
+	v.SetDefault("semantic_memory.enabled", false)
+	v.SetDefault("semantic_memory.embedding_version", "v1")
+	v.SetDefault("semantic_memory.embedding_dimensions", 0)
+	v.SetDefault("semantic_memory.similarity_threshold", 0.88)
+	v.SetDefault("semantic_memory.spam_similarity_threshold", 0.90)
+	v.SetDefault("semantic_memory.ham_similarity_threshold", 0.95)
+	v.SetDefault("semantic_memory.max_neighbors", 5)
+	v.SetDefault("semantic_memory.cache_ttl", 168*time.Hour)
+	v.SetDefault("semantic_memory.bedrock.auth_mode", BedrockAuthModeIAMRole)
 }
 
 func envBindings() map[string]string {
@@ -255,6 +372,24 @@ func envBindings() map[string]string {
 		"redis.username":            "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
 		"security.content_hash_key": "CONTENT_HASH_KEY", "rules.dir": "RULES_DIR",
 		"auto_replies.enabled": "AUTO_REPLIES_ENABLED", "auto_replies.rules_file": "AUTO_REPLIES_RULES_FILE",
+		"ai_detection.enabled": "AI_DETECTION_ENABLED", "ai_detection.mode": "AI_DETECTION_MODE", "ai_detection.provider": "AI_DETECTION_PROVIDER",
+		"ai_detection.timeout": "AI_DETECTION_TIMEOUT", "ai_detection.max_text_chars": "AI_DETECTION_MAX_TEXT_CHARS",
+		"ai_detection.min_confidence": "AI_DETECTION_MIN_CONFIDENCE", "ai_detection.only_when_ambiguous": "AI_DETECTION_ONLY_WHEN_AMBIGUOUS",
+		"ai_detection.cache_ttl": "AI_DETECTION_CACHE_TTL", "ai_detection.openai_compatible.endpoint": "AI_DETECTION_OPENAI_COMPATIBLE_ENDPOINT",
+		"ai_detection.openai_compatible.model": "AI_DETECTION_OPENAI_COMPATIBLE_MODEL", "ai_detection.openai_compatible.api_key": "AI_DETECTION_OPENAI_COMPATIBLE_API_KEY",
+		"ai_detection.bedrock.region": "AI_DETECTION_BEDROCK_REGION", "ai_detection.bedrock.model_id": "AI_DETECTION_BEDROCK_MODEL_ID",
+		"ai_detection.bedrock.auth_mode": "AI_DETECTION_BEDROCK_AUTH_MODE", "ai_detection.bedrock.access_key_id": "AI_DETECTION_BEDROCK_ACCESS_KEY_ID",
+		"ai_detection.bedrock.secret_access_key": "AI_DETECTION_BEDROCK_SECRET_ACCESS_KEY", "ai_detection.bedrock.session_token": "AI_DETECTION_BEDROCK_SESSION_TOKEN",
+		"semantic_memory.enabled": "SEMANTIC_MEMORY_ENABLED", "semantic_memory.embedding_provider": "SEMANTIC_MEMORY_EMBEDDING_PROVIDER",
+		"semantic_memory.embedding_version": "SEMANTIC_MEMORY_EMBEDDING_VERSION", "semantic_memory.embedding_dimensions": "SEMANTIC_MEMORY_EMBEDDING_DIMENSIONS",
+		"semantic_memory.similarity_threshold":      "SEMANTIC_MEMORY_SIMILARITY_THRESHOLD",
+		"semantic_memory.spam_similarity_threshold": "SEMANTIC_MEMORY_SPAM_SIMILARITY_THRESHOLD",
+		"semantic_memory.ham_similarity_threshold":  "SEMANTIC_MEMORY_HAM_SIMILARITY_THRESHOLD", "semantic_memory.max_neighbors": "SEMANTIC_MEMORY_MAX_NEIGHBORS",
+		"semantic_memory.cache_ttl": "SEMANTIC_MEMORY_CACHE_TTL", "semantic_memory.openai_compatible.endpoint": "SEMANTIC_MEMORY_OPENAI_COMPATIBLE_ENDPOINT",
+		"semantic_memory.openai_compatible.model": "SEMANTIC_MEMORY_OPENAI_COMPATIBLE_MODEL", "semantic_memory.openai_compatible.api_key": "SEMANTIC_MEMORY_OPENAI_COMPATIBLE_API_KEY",
+		"semantic_memory.bedrock.region": "SEMANTIC_MEMORY_BEDROCK_REGION", "semantic_memory.bedrock.model_id": "SEMANTIC_MEMORY_BEDROCK_MODEL_ID",
+		"semantic_memory.bedrock.auth_mode": "SEMANTIC_MEMORY_BEDROCK_AUTH_MODE", "semantic_memory.bedrock.access_key_id": "SEMANTIC_MEMORY_BEDROCK_ACCESS_KEY_ID",
+		"semantic_memory.bedrock.secret_access_key": "SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY", "semantic_memory.bedrock.session_token": "SEMANTIC_MEMORY_BEDROCK_SESSION_TOKEN",
 	}
 }
 
@@ -389,5 +524,112 @@ func (c Config) Validate() error {
 	if c.AutoReplies.Enabled && strings.TrimSpace(c.AutoReplies.RulesFile) == "" {
 		errs = append(errs, errors.New("auto_replies.rules_file: required when auto replies are enabled"))
 	}
+	errs = append(errs, validateAIDetection(c.AIDetection)...)
+	errs = append(errs, validateSemanticMemory(c.SemanticMemory)...)
 	return errors.Join(errs...)
+}
+
+func validateAIDetection(cfg AIDetectionConfig) []error {
+	var errs []error
+	if cfg.Mode != ModeObserve && cfg.Mode != ModeDeleteOnly && cfg.Mode != ModeEnforce {
+		errs = append(errs, fmt.Errorf("ai_detection.mode: unsupported value %q", cfg.Mode))
+	}
+	if cfg.Timeout <= 0 {
+		errs = append(errs, errors.New("ai_detection.timeout: must be positive"))
+	}
+	if cfg.MaxTextChars <= 0 {
+		errs = append(errs, errors.New("ai_detection.max_text_chars: must be positive"))
+	}
+	if cfg.MinConfidence < 0 || cfg.MinConfidence > 1 {
+		errs = append(errs, errors.New("ai_detection.min_confidence: must be between 0 and 1"))
+	}
+	if cfg.CacheTTL <= 0 {
+		errs = append(errs, errors.New("ai_detection.cache_ttl: must be positive"))
+	}
+	if !cfg.Enabled {
+		return errs
+	}
+	if cfg.Provider == "" {
+		errs = append(errs, errors.New("ai_detection.provider: required when AI detection is enabled"))
+		return errs
+	}
+	return append(errs, validateProviderConfig("ai_detection", cfg.Provider, cfg.OpenAICompatible, cfg.Bedrock)...)
+}
+
+func validateSemanticMemory(cfg SemanticMemoryConfig) []error {
+	var errs []error
+	if cfg.EmbeddingDimensions < 0 {
+		errs = append(errs, errors.New("semantic_memory.embedding_dimensions: must not be negative"))
+	}
+	for name, threshold := range map[string]float64{
+		"similarity_threshold":      cfg.SimilarityThreshold,
+		"spam_similarity_threshold": cfg.SpamSimilarityThreshold,
+		"ham_similarity_threshold":  cfg.HamSimilarityThreshold,
+	} {
+		if threshold < 0 || threshold > 1 {
+			errs = append(errs, fmt.Errorf("semantic_memory.%s: must be between 0 and 1", name))
+		}
+	}
+	if cfg.MaxNeighbors <= 0 {
+		errs = append(errs, errors.New("semantic_memory.max_neighbors: must be positive"))
+	}
+	if cfg.CacheTTL <= 0 {
+		errs = append(errs, errors.New("semantic_memory.cache_ttl: must be positive"))
+	}
+	if !cfg.Enabled {
+		return errs
+	}
+	if cfg.EmbeddingProvider == "" {
+		errs = append(errs, errors.New("semantic_memory.embedding_provider: required when semantic memory is enabled"))
+		return errs
+	}
+	return append(errs, validateProviderConfig("semantic_memory", cfg.EmbeddingProvider, cfg.OpenAICompatible, cfg.Bedrock)...)
+}
+
+func validateProviderConfig(prefix string, provider AIProvider, openAI OpenAICompatibleConfig, bedrock BedrockConfig) []error {
+	switch provider {
+	case AIProviderOpenAICompatible:
+		return validateOpenAICompatibleConfig(prefix+".openai_compatible", openAI)
+	case AIProviderBedrock:
+		return validateBedrockConfig(prefix+".bedrock", bedrock)
+	default:
+		return []error{fmt.Errorf("%s.provider: unsupported value %q", prefix, provider)}
+	}
+}
+
+func validateOpenAICompatibleConfig(prefix string, cfg OpenAICompatibleConfig) []error {
+	var errs []error
+	if strings.TrimSpace(cfg.Endpoint) == "" {
+		errs = append(errs, fmt.Errorf("%s.endpoint: required", prefix))
+	}
+	if strings.TrimSpace(cfg.Model) == "" {
+		errs = append(errs, fmt.Errorf("%s.model: required", prefix))
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		errs = append(errs, fmt.Errorf("%s.api_key: required", prefix))
+	}
+	return errs
+}
+
+func validateBedrockConfig(prefix string, cfg BedrockConfig) []error {
+	var errs []error
+	if strings.TrimSpace(cfg.Region) == "" {
+		errs = append(errs, fmt.Errorf("%s.region: required", prefix))
+	}
+	if strings.TrimSpace(cfg.ModelID) == "" {
+		errs = append(errs, fmt.Errorf("%s.model_id: required", prefix))
+	}
+	switch cfg.AuthMode {
+	case BedrockAuthModeIAMRole:
+	case BedrockAuthModeStaticKeys:
+		if strings.TrimSpace(cfg.AccessKeyID) == "" {
+			errs = append(errs, fmt.Errorf("%s.access_key_id: required for static_keys", prefix))
+		}
+		if strings.TrimSpace(cfg.SecretAccessKey) == "" {
+			errs = append(errs, fmt.Errorf("%s.secret_access_key: required for static_keys", prefix))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("%s.auth_mode: unsupported value %q", prefix, cfg.AuthMode))
+	}
+	return errs
 }

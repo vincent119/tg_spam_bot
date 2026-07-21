@@ -31,8 +31,8 @@ func TestDefinitionsAndLookup(t *testing.T) {
 	t.Parallel()
 
 	definitions := Definitions()
-	if len(definitions) != 11 {
-		t.Fatalf("指令數=%d，預期 11", len(definitions))
+	if len(definitions) != 12 {
+		t.Fatalf("指令數=%d，預期 12", len(definitions))
 	}
 	definitions[0].Usage = "changed"
 	help, ok := LookupDefinition(NameHelp)
@@ -41,6 +41,30 @@ func TestDefinitionsAndLookup(t *testing.T) {
 	}
 	if _, ok := LookupDefinition(Name("unknown")); ok {
 		t.Fatal("未知指令不應存在")
+	}
+}
+
+func TestParseFeedSpamCategory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: "", want: "uncategorized_spam"},
+		{value: " Agent_Recruiting ", want: "agent_recruiting"},
+		{value: "crypto-exchange", want: "crypto-exchange"},
+		{value: "中文", wantErr: true},
+		{value: strings.Repeat("a", 65), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := ParseFeedSpamCategory(tt.value)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Fatalf("ParseFeedSpamCategory()=%q, %v，預期 %q err=%v", got, err, tt.want, tt.wantErr)
+			}
+		})
 	}
 }
 

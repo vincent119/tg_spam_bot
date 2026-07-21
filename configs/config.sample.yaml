@@ -89,3 +89,51 @@ rules:
 auto_replies:
   enabled: false
   rules_file: configs/auto_replies.yaml
+
+# AI 輔助判定預設停用；首版建議只用 observe 校準，不直接封鎖。
+ai_detection:
+  enabled: false
+  mode: observe
+  provider: openai_compatible
+  timeout: 3s
+  max_text_chars: 800
+  min_confidence: 0.85
+  only_when_ambiguous: true
+  cache_ttl: 24h
+  # OpenAI-compatible provider 使用 API key；實值只可由 ENV 或 Secret Manager 注入。
+  openai_compatible:
+    endpoint: "" # ENV: AI_DETECTION_OPENAI_COMPATIBLE_ENDPOINT
+    model: "" # ENV: AI_DETECTION_OPENAI_COMPATIBLE_MODEL
+    api_key: "" # ENV: AI_DETECTION_OPENAI_COMPATIBLE_API_KEY
+  # AWS Bedrock 正式環境優先使用 iam_role；static_keys 僅作為相容選項。
+  bedrock:
+    region: "" # ENV: AI_DETECTION_BEDROCK_REGION
+    model_id: "" # ENV: AI_DETECTION_BEDROCK_MODEL_ID
+    auth_mode: iam_role # iam_role 或 static_keys；ENV: AI_DETECTION_BEDROCK_AUTH_MODE
+    access_key_id: "" # ENV: AI_DETECTION_BEDROCK_ACCESS_KEY_ID
+    secret_access_key: "" # ENV: AI_DETECTION_BEDROCK_SECRET_ACCESS_KEY
+    session_token: "" # ENV: AI_DETECTION_BEDROCK_SESSION_TOKEN
+
+# pgvector 語意記憶預設停用；不同 provider/model/version/dimensions 的向量不得混查。
+semantic_memory:
+  enabled: false
+  embedding_provider: openai_compatible
+  embedding_version: v1
+  # 0 表示由 adapter 首次結果決定；正式環境建議固定維度。
+  embedding_dimensions: 0
+  similarity_threshold: 0.88
+  spam_similarity_threshold: 0.90
+  ham_similarity_threshold: 0.95
+  max_neighbors: 5
+  cache_ttl: 168h
+  openai_compatible:
+    endpoint: "" # ENV: SEMANTIC_MEMORY_OPENAI_COMPATIBLE_ENDPOINT
+    model: "" # ENV: SEMANTIC_MEMORY_OPENAI_COMPATIBLE_MODEL
+    api_key: "" # ENV: SEMANTIC_MEMORY_OPENAI_COMPATIBLE_API_KEY
+  bedrock:
+    region: "" # ENV: SEMANTIC_MEMORY_BEDROCK_REGION
+    model_id: "" # ENV: SEMANTIC_MEMORY_BEDROCK_MODEL_ID
+    auth_mode: iam_role # iam_role 或 static_keys；ENV: SEMANTIC_MEMORY_BEDROCK_AUTH_MODE
+    access_key_id: "" # ENV: SEMANTIC_MEMORY_BEDROCK_ACCESS_KEY_ID
+    secret_access_key: "" # ENV: SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY
+    session_token: "" # ENV: SEMANTIC_MEMORY_BEDROCK_SESSION_TOKEN

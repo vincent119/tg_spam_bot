@@ -20,6 +20,7 @@ type Processor struct {
 	behaviors  BehaviorStore
 	violations ViolationStore
 	telegram   Telegram
+	ai         *AIDetectionProcessor
 	mode       Mode
 	hashKey    []byte
 	now        func() time.Time
@@ -33,8 +34,24 @@ type ProcessResult struct {
 }
 
 // NewProcessor 組裝用例並複製雜湊金鑰，避免呼叫端修改敏感資料。
-func NewProcessor(detector Detector, updates UpdateStore, exemptions ExemptionStore, behaviors BehaviorStore, violations ViolationStore, telegram Telegram, mode Mode, hashKey []byte) *Processor {
-	return &Processor{detector: detector, updates: updates, exemptions: exemptions, behaviors: behaviors, violations: violations, telegram: telegram, mode: mode, hashKey: append([]byte(nil), hashKey...), now: time.Now}
+func NewProcessor(detector Detector, updates UpdateStore, exemptions ExemptionStore, behaviors BehaviorStore, violations ViolationStore, telegram Telegram, mode Mode, hashKey []byte, opts ...ProcessorOption) *Processor {
+	processor := &Processor{detector: detector, updates: updates, exemptions: exemptions, behaviors: behaviors, violations: violations, telegram: telegram, mode: mode, hashKey: append([]byte(nil), hashKey...), now: time.Now}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(processor)
+		}
+	}
+	return processor
+}
+
+// ProcessorOption 調整偵測流程的可選能力。
+type ProcessorOption func(*Processor)
+
+// WithAIDetectionProcessor 插入 AI 輔助判定流程。
+func WithAIDetectionProcessor(ai *AIDetectionProcessor) ProcessorOption {
+	return func(processor *Processor) {
+		processor.ai = ai
+	}
 }
 
 // Process 以 update_id 收斂重送，且只在完整成功後標記更新完成。
@@ -79,10 +96,14 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 		return ProcessResult{}, fmt.Errorf("observe behavior: %w", err)
 	}
 	result := p.detector.Detect(message, signals...)
-	event := Event{ID: fmt.Sprintf("tg:%d", message.UpdateID), Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, Mode: p.mode, CreatedAt: p.now().UTC()}
+	effectiveMode := p.mode
+	if p.ai != nil {
+		result, effectiveMode = p.ai.Evaluate(ctx, message, fingerprint, result, p.mode)
+	}
+	event := Event{ID: fmt.Sprintf("tg:%d", message.UpdateID), Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, Mode: effectiveMode, CreatedAt: p.now().UTC()}
 	logDetectionResult(ctx, event)
 
-	if !result.Spam || p.mode == ModeObserve {
+	if !result.Spam || effectiveMode == ModeObserve {
 		if err := p.violations.RecordDetection(ctx, event); err != nil {
 			return ProcessResult{}, fmt.Errorf("record detection: %w", err)
 		}

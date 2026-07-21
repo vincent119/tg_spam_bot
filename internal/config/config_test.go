@@ -38,6 +38,20 @@ func TestValidate(t *testing.T) {
 	valid.Redis.Addr = "redis:6379"
 	valid.Security.ContentHashKey = "01234567890123456789012345678901"
 	valid.Rules.Dir = "rules"
+	valid.AIDetection.Mode = ModeObserve
+	valid.AIDetection.Timeout = 3 * time.Second
+	valid.AIDetection.MaxTextChars = 800
+	valid.AIDetection.MinConfidence = 0.85
+	valid.AIDetection.OnlyWhenAmbiguous = true
+	valid.AIDetection.CacheTTL = 24 * time.Hour
+	valid.AIDetection.Bedrock.AuthMode = BedrockAuthModeIAMRole
+	valid.SemanticMemory.EmbeddingVersion = "v1"
+	valid.SemanticMemory.SimilarityThreshold = 0.88
+	valid.SemanticMemory.SpamSimilarityThreshold = 0.90
+	valid.SemanticMemory.HamSimilarityThreshold = 0.95
+	valid.SemanticMemory.MaxNeighbors = 5
+	valid.SemanticMemory.CacheTTL = 168 * time.Hour
+	valid.SemanticMemory.Bedrock.AuthMode = BedrockAuthModeIAMRole
 
 	tests := []struct {
 		name    string
@@ -65,6 +79,49 @@ func TestValidate(t *testing.T) {
 			c.AutoReplies.Enabled = true
 			c.AutoReplies.RulesFile = "configs/auto_replies.yaml"
 		}},
+		{name: "ai disabled defaults valid", mutate: func(c *Config) { c.AIDetection.Enabled = false }},
+		{name: "ai invalid confidence", mutate: func(c *Config) { c.AIDetection.MinConfidence = 1.1 }, wantErr: true},
+		{name: "ai enabled missing provider", mutate: func(c *Config) { c.AIDetection.Enabled = true }, wantErr: true},
+		{name: "ai openai compatible", mutate: func(c *Config) {
+			c.AIDetection.Enabled = true
+			c.AIDetection.Provider = AIProviderOpenAICompatible
+			c.AIDetection.OpenAICompatible.Endpoint = "https://api.example.com/v1"
+			c.AIDetection.OpenAICompatible.Model = "classifier"
+			c.AIDetection.OpenAICompatible.APIKey = "secret"
+		}},
+		{name: "ai bedrock iam role", mutate: func(c *Config) {
+			c.AIDetection.Enabled = true
+			c.AIDetection.Provider = AIProviderBedrock
+			c.AIDetection.Bedrock.Region = "us-east-1"
+			c.AIDetection.Bedrock.ModelID = "amazon.nova-lite-v1:0"
+			c.AIDetection.Bedrock.AuthMode = BedrockAuthModeIAMRole
+		}},
+		{name: "ai bedrock static keys missing secret", mutate: func(c *Config) {
+			c.AIDetection.Enabled = true
+			c.AIDetection.Provider = AIProviderBedrock
+			c.AIDetection.Bedrock.Region = "us-east-1"
+			c.AIDetection.Bedrock.ModelID = "amazon.nova-lite-v1:0"
+			c.AIDetection.Bedrock.AuthMode = BedrockAuthModeStaticKeys
+			c.AIDetection.Bedrock.AccessKeyID = "access"
+		}, wantErr: true},
+		{name: "semantic memory disabled defaults valid", mutate: func(c *Config) { c.SemanticMemory.Enabled = false }},
+		{name: "semantic memory invalid threshold", mutate: func(c *Config) { c.SemanticMemory.SpamSimilarityThreshold = -0.1 }, wantErr: true},
+		{name: "semantic memory enabled openai compatible", mutate: func(c *Config) {
+			c.SemanticMemory.Enabled = true
+			c.SemanticMemory.EmbeddingProvider = AIProviderOpenAICompatible
+			c.SemanticMemory.OpenAICompatible.Endpoint = "https://api.example.com/v1"
+			c.SemanticMemory.OpenAICompatible.Model = "embedding"
+			c.SemanticMemory.OpenAICompatible.APIKey = "secret"
+		}},
+		{name: "semantic memory bedrock static keys", mutate: func(c *Config) {
+			c.SemanticMemory.Enabled = true
+			c.SemanticMemory.EmbeddingProvider = AIProviderBedrock
+			c.SemanticMemory.Bedrock.Region = "us-east-1"
+			c.SemanticMemory.Bedrock.ModelID = "amazon.titan-embed-text-v2:0"
+			c.SemanticMemory.Bedrock.AuthMode = BedrockAuthModeStaticKeys
+			c.SemanticMemory.Bedrock.AccessKeyID = "access"
+			c.SemanticMemory.Bedrock.SecretAccessKey = "secret"
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,6 +145,9 @@ func TestLoadStructuredSample(t *testing.T) {
 	t.Setenv("REDIS_USERNAME", "app")
 	t.Setenv("REDIS_PASSWORD", "redis-secret")
 	t.Setenv("REDIS_DB", "2")
+	t.Setenv("AI_DETECTION_OPENAI_COMPATIBLE_API_KEY", "ai-secret")
+	t.Setenv("SEMANTIC_MEMORY_BEDROCK_ACCESS_KEY_ID", "semantic-access")
+	t.Setenv("SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY", "semantic-secret")
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	content := []byte(`
@@ -125,6 +185,32 @@ rules:
 auto_replies:
   enabled: true
   rules_file: configs/auto_replies.yaml
+ai_detection:
+  enabled: true
+  mode: observe
+  provider: openai_compatible
+  timeout: 3s
+  max_text_chars: 800
+  min_confidence: 0.85
+  only_when_ambiguous: true
+  cache_ttl: 24h
+  openai_compatible:
+    endpoint: https://ai.example.com/v1
+    model: spam-classifier
+semantic_memory:
+  enabled: true
+  embedding_provider: bedrock
+  embedding_version: v1
+  embedding_dimensions: 1024
+  similarity_threshold: 0.88
+  spam_similarity_threshold: 0.90
+  ham_similarity_threshold: 0.95
+  max_neighbors: 5
+  cache_ttl: 168h
+  bedrock:
+    region: us-east-1
+    model_id: amazon.titan-embed-text-v2:0
+    auth_mode: static_keys
 `)
 	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		t.Fatalf("建立測試設定檔失敗：%v", err)
@@ -160,5 +246,14 @@ auto_replies:
 	}
 	if !cfg.AutoReplies.Enabled || cfg.AutoReplies.RulesFile != "configs/auto_replies.yaml" {
 		t.Fatalf("未正確載入自動回覆設定：%+v", cfg.AutoReplies)
+	}
+	if !cfg.AIDetection.Enabled || cfg.AIDetection.Provider != AIProviderOpenAICompatible || cfg.AIDetection.OpenAICompatible.APIKey != "ai-secret" {
+		t.Fatalf("未正確載入 AI 設定：%+v", cfg.AIDetection)
+	}
+	if !cfg.SemanticMemory.Enabled || cfg.SemanticMemory.EmbeddingProvider != AIProviderBedrock || cfg.SemanticMemory.EmbeddingDimensions != 1024 {
+		t.Fatalf("未正確載入語意記憶設定：%+v", cfg.SemanticMemory)
+	}
+	if cfg.SemanticMemory.Bedrock.AccessKeyID != "semantic-access" || cfg.SemanticMemory.Bedrock.SecretAccessKey != "semantic-secret" {
+		t.Fatalf("未正確載入 Bedrock credential：%+v", cfg.SemanticMemory.Bedrock)
 	}
 }

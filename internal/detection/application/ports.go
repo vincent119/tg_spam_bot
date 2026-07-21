@@ -12,6 +12,50 @@ type Detector interface {
 	Detect(message domain.Message, extraSignals ...string) domain.Result
 }
 
+// AIClassifier 定義可替換的 AI provider 邊界，application 不處理 credential 型態。
+type AIClassifier interface {
+	Classify(ctx context.Context, input domain.AIClassifyInput) (domain.AIClassifyResult, error)
+}
+
+// EmbeddingProvider 定義可替換的 embedding provider 邊界，避免語意記憶耦合特定廠商。
+type EmbeddingProvider interface {
+	Embed(ctx context.Context, input domain.EmbeddingInput) (domain.EmbeddingResult, error)
+}
+
+// SemanticMemory 定義語意相似歷史案例查詢邊界，application 不耦合 pgvector 實作。
+type SemanticMemory interface {
+	SearchSimilar(ctx context.Context, embedding domain.EmbeddingResult, maxNeighbors int) ([]domain.SemanticMatch, error)
+}
+
+// EmbeddingStore 保存與查詢訊息 embedding。
+type EmbeddingStore interface {
+	SaveEmbedding(ctx context.Context, record EmbeddingRecord) error
+	FindEmbeddingByFingerprint(ctx context.Context, fingerprint, provider, model, version string, dimensions int, now time.Time) (EmbeddingRecord, bool, error)
+}
+
+// AIDetectionStore 保存 AI 判定稽核、失敗摘要與內容快取。
+type AIDetectionStore interface {
+	ClaimAIDetection(ctx context.Context, event AIDetectionEvent) (AIDetectionClaim, error)
+	CompleteAIDetection(ctx context.Context, event AIDetectionEvent, result domain.AIClassifyResult) error
+	FailAIDetection(ctx context.Context, event AIDetectionEvent, result AIDetectionResult) error
+	FindCachedAIDetection(ctx context.Context, key AIDetectionCacheKey) (AIDetectionResult, bool, error)
+}
+
+// ManualSampleStore 保存管理員提交的漏網垃圾樣本，供後續向量化流程使用。
+type ManualSampleStore interface {
+	CreateManualSample(ctx context.Context, sample ManualSample) (ManualSample, bool, error)
+	PendingManualSamples(ctx context.Context, limit int) ([]ManualSample, error)
+	MarkManualSampleEmbeddingCompleted(ctx context.Context, id uint64, embeddedAt time.Time) error
+	MarkManualSampleEmbeddingFailed(ctx context.Context, id uint64, errorCode, errorText string, retryable bool) error
+}
+
+// SemanticBlacklistStore 保存與查詢語意黑名單分類與範例。
+type SemanticBlacklistStore interface {
+	SaveSemanticBlacklistCategory(ctx context.Context, category SemanticBlacklistCategory) error
+	SaveSemanticBlacklistExample(ctx context.Context, example SemanticBlacklistExample) error
+	SearchSemanticBlacklist(ctx context.Context, embedding domain.EmbeddingResult, threshold float64, maxNeighbors int) ([]SemanticBlacklistMatch, error)
+}
+
 // UpdateStore 以 update_id 保證 Telegram Webhook 重送不會重複處置。
 type UpdateStore interface {
 	Claim(ctx context.Context, updateID int64) (bool, error)

@@ -102,6 +102,9 @@ func (u Update) Command(botUsername string) (commanddomain.Command, CommandDispo
 		if reply.From != nil {
 			command.Target = &commanddomain.Target{ID: reply.From.ID, IsBot: reply.From.IsBot, Username: reply.From.Username}
 		}
+		if text, _, ok := reply.detectableText(); ok {
+			command.TargetText = text
+		}
 	}
 	validated, err := commanddomain.NewCommand(command)
 	if err != nil {

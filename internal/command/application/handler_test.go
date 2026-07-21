@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
 )
 
 type telegramSpy struct {
@@ -135,6 +136,21 @@ func (s *storeStub) ClearWarnings(context.Context, domain.Command, domain.Reason
 type limiterStub struct{ allowed bool }
 
 func (s limiterStub) Allow(context.Context, int64, int64) (bool, error) { return s.allowed, nil }
+
+type feedSpamSpy struct {
+	input detectionapp.ManualFeedInput
+	err   error
+	calls int
+}
+
+func (s *feedSpamSpy) SubmitSpam(_ context.Context, input detectionapp.ManualFeedInput) (detectionapp.ManualSample, bool, error) {
+	s.calls++
+	s.input = input
+	if s.err != nil {
+		return detectionapp.ManualSample{}, false, s.err
+	}
+	return detectionapp.ManualSample{ID: 1, Status: detectionapp.ManualSampleStatusEmbeddingCompleted}, true, nil
+}
 
 func TestHandlerPublicAndIdempotence(t *testing.T) {
 	t.Parallel()
@@ -301,6 +317,7 @@ func TestHandlerAdminCommands(t *testing.T) {
 				t.Fatalf("unbanned=%d", tg.unbanned)
 			}
 		}},
+		{name: "漏網樣本功能未啟用", command: domain.NameFeedSpam, args: "agent_recruiting", admin: true, wantStatus: "failed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,6 +339,78 @@ func TestHandlerAdminCommands(t *testing.T) {
 			}
 			if tt.verify != nil {
 				tt.verify(t, tg, store)
+			}
+		})
+	}
+}
+
+func TestHandlerFeedSpam(t *testing.T) {
+	t.Parallel()
+
+	tg := &telegramSpy{admins: map[int64]bool{1: true}}
+	store := &storeStub{claim: domain.Claim{Acquired: true}}
+	feedSpam := &feedSpamSpy{}
+	handler, err := NewHandler(
+		tg, trustedStub{}, store, limiterStub{allowed: true}, 99,
+		WithFeedSpamSubmitter(feedSpam, []byte("01234567890123456789012345678901"), 800, time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := domain.Target{ID: 2}
+	command, _ := domain.NewCommand(domain.Command{
+		UpdateID: 30, ChatID: -1001, MessageID: 3, Actor: domain.Actor{ID: 1},
+		Target: &target, TargetMessage: 2, TargetText: "抖音禮物項目 @x",
+		Name: domain.NameFeedSpam, Args: "agent_recruiting",
+	})
+	if err := handler.Handle(t.Context(), command); err != nil {
+		t.Fatal(err)
+	}
+	if store.completed != "completed" || feedSpam.calls != 1 || len(tg.messages) != 1 {
+		t.Fatalf("status=%s calls=%d messages=%v", store.completed, feedSpam.calls, tg.messages)
+	}
+	if feedSpam.input.Sample.Category != "agent_recruiting" || feedSpam.input.Text != "抖音禮物項目 @x" || feedSpam.input.Sample.ContentFingerprint == "" {
+		t.Fatalf("feedspam input=%+v", feedSpam.input)
+	}
+	if tg.deleted != 0 || tg.banned != 0 || tg.restricted != 0 {
+		t.Fatalf("feedspam 不應處置：deleted=%d banned=%d restricted=%d", tg.deleted, tg.banned, tg.restricted)
+	}
+}
+
+func TestHandlerFeedSpamValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       string
+		targetText string
+		wantStatus string
+	}{
+		{name: "分類格式錯誤", args: "中文", targetText: "spam", wantStatus: "invalid"},
+		{name: "目標沒有文字", args: "agent_recruiting", wantStatus: "invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tg := &telegramSpy{admins: map[int64]bool{1: true}}
+			store := &storeStub{claim: domain.Claim{Acquired: true}}
+			handler, err := NewHandler(
+				tg, trustedStub{}, store, limiterStub{allowed: true}, 99,
+				WithFeedSpamSubmitter(&feedSpamSpy{}, []byte("01234567890123456789012345678901"), 800, time.Hour),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := domain.Target{ID: 2}
+			command, _ := domain.NewCommand(domain.Command{
+				UpdateID: 31, ChatID: -1001, MessageID: 3, Actor: domain.Actor{ID: 1},
+				Target: &target, TargetMessage: 2, TargetText: tt.targetText,
+				Name: domain.NameFeedSpam, Args: tt.args,
+			})
+			if err := handler.Handle(t.Context(), command); err != nil {
+				t.Fatal(err)
+			}
+			if store.completed != tt.wantStatus {
+				t.Fatalf("status=%s，預期 %s", store.completed, tt.wantStatus)
 			}
 		})
 	}

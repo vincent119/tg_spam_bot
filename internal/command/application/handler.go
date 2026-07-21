@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,16 +13,22 @@ import (
 	"github.com/vincent119/zlogger"
 
 	"github.com/vincent119/tg_spam_bot/internal/command/domain"
+	detectionapp "github.com/vincent119/tg_spam_bot/internal/detection/application"
+	detectiondomain "github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
 // Handler 執行固定管理指令，並將人工操作與自動偵測模式分離。
 type Handler struct {
-	telegram Telegram
-	trusted  TrustedMembers
-	store    ExecutionStore
-	limiter  Limiter
-	botID    int64
-	clock    Clock
+	telegram             Telegram
+	trusted              TrustedMembers
+	store                ExecutionStore
+	limiter              Limiter
+	feedSpam             FeedSpamSubmitter
+	botID                int64
+	hashKey              []byte
+	feedSpamMaxTextRunes int
+	feedSpamEmbeddingTTL time.Duration
+	clock                Clock
 }
 
 type systemClock struct{}
@@ -36,6 +45,20 @@ func WithClock(clock Clock) Option {
 			return errors.New("clock 不得為空")
 		}
 		handler.clock = clock
+		return nil
+	}
+}
+
+// WithFeedSpamSubmitter 啟用 `/feedspam` 並設定同步 embedding 需要的限制。
+func WithFeedSpamSubmitter(submitter FeedSpamSubmitter, hashKey []byte, maxTextRunes int, embeddingTTL time.Duration) Option {
+	return func(handler *Handler) error {
+		if submitter == nil || len(hashKey) == 0 || maxTextRunes <= 0 || embeddingTTL <= 0 {
+			return errors.New("feedspam submitter、hash key、文字長度與 TTL 不得為空")
+		}
+		handler.feedSpam = submitter
+		handler.hashKey = append([]byte(nil), hashKey...)
+		handler.feedSpamMaxTextRunes = maxTextRunes
+		handler.feedSpamEmbeddingTTL = embeddingTTL
 		return nil
 	}
 }
@@ -131,6 +154,10 @@ func validateAdminArgs(command domain.Command) error {
 	case domain.NameUnban:
 		if command.Target != nil && args != "" {
 			return errors.New("回覆成員訊息時不得再提供 user ID")
+		}
+	case domain.NameFeedSpam:
+		if _, err := domain.ParseFeedSpamCategory(args); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -234,6 +261,29 @@ func (h *Handler) handleAdmin(ctx context.Context, command domain.Command) error
 			return h.fail(ctx, command, "解除封鎖失敗", err)
 		}
 		return h.finishWithReply(ctx, command, "completed", fmt.Sprintf("已解除使用者 %d 的封鎖。", targetID), "")
+	case domain.NameFeedSpam:
+		if h.feedSpam == nil {
+			return h.finishWithReply(ctx, command, "failed", "漏網樣本提交功能尚未啟用。", string(domain.ErrorTemporary))
+		}
+		category, err := domain.ParseFeedSpamCategory(command.Args)
+		if err != nil {
+			return h.finishWithReply(ctx, command, "invalid", err.Error(), err.Error())
+		}
+		if strings.TrimSpace(command.TargetText) == "" {
+			return h.finishWithReply(ctx, command, "invalid", "目標訊息沒有可提交的文字或說明。", "")
+		}
+		_, _, err = h.feedSpam.SubmitSpam(ctx, detectionapp.ManualFeedInput{
+			Sample: detectionapp.ManualSample{
+				ChatID: command.ChatID, MessageID: command.TargetMessage, TargetUserID: targetID, OperatorID: command.Actor.ID,
+				ContentFingerprint: h.fingerprint(command.TargetText), Label: detectiondomain.AILabelSpam,
+				Category: category, Source: "feedspam", CreatedAt: now,
+			},
+			Text: command.TargetText, MaxTextRunes: h.feedSpamMaxTextRunes, EmbeddingTTL: h.feedSpamEmbeddingTTL,
+		})
+		if err != nil {
+			return h.fail(ctx, command, "提交漏網樣本失敗", err)
+		}
+		return h.finishWithReply(ctx, command, "completed", "已加入待訓練樣本。", "")
 	default:
 		return h.finishWithReply(ctx, command, "ignored", "未知指令，請使用 /help 查看說明。", "")
 	}
@@ -339,4 +389,10 @@ func classifyError(err error) (string, bool) {
 		return classified.ErrorCode(), classified.IsRetryable()
 	}
 	return string(domain.ErrorTemporary), true
+}
+
+func (h *Handler) fingerprint(text string) string {
+	sum := hmac.New(sha256.New, h.hashKey)
+	_, _ = sum.Write([]byte(text))
+	return hex.EncodeToString(sum.Sum(nil))
 }

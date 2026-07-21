@@ -170,6 +170,48 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 	}
 }
 
+func TestWebhookRoutesFeedSpamWithReplyText(t *testing.T) {
+	t.Parallel()
+
+	commands := 0
+	messages := 0
+	autoReplies := 0
+	h, err := NewWebhook(
+		"secret",
+		4096,
+		processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+			messages++
+			return detectionapp.ProcessResult{}, nil
+		}),
+		WithAllowedChatIDs([]int64{-1001}),
+		WithCommandProcessor(commandProcessorFunc(func(_ context.Context, command commanddomain.Command) error {
+			commands++
+			if command.Name != commanddomain.NameFeedSpam || command.Target == nil || command.Target.ID != 9 {
+				t.Fatalf("command = %+v", command)
+			}
+			if command.TargetText != "抖音禮物項目 @x" {
+				t.Fatalf("TargetText = %q", command.TargetText)
+			}
+			return nil
+		}), "liyu_spam_bot"),
+		WithAutoReplyProcessor(autoReplyProcessorFunc(func(context.Context, domain.Message) error {
+			autoReplies++
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"update_id":18,"message":{"message_id":7,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"/feedspam agent_recruiting","entities":[{"type":"bot_command","offset":0,"length":9}],"reply_to_message":{"message_id":6,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":9},"text":"抖音禮物項目 @x"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+	req.Header.Set(secretHeader, "secret")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || commands != 1 || messages != 0 || autoReplies != 0 {
+		t.Fatalf("status=%d commands=%d messages=%d autoReplies=%d", res.Code, commands, messages, autoReplies)
+	}
+}
+
 func TestWebhookAutoReplyAfterNonSpam(t *testing.T) {
 	t.Parallel()
 	autoReplies := 0
