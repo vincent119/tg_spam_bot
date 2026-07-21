@@ -48,6 +48,21 @@ type BotIdentity struct {
 	Username string `json:"username"`
 }
 
+// WebhookInfo 保存 getWebhookInfo 回傳中可用於健康檢查的非敏感欄位。
+type WebhookInfo struct {
+	URL                string `json:"url"`
+	PendingUpdateCount int    `json:"pending_update_count"`
+	LastErrorDate      int64  `json:"last_error_date"`
+	LastErrorMessage   string `json:"last_error_message"`
+}
+
+// BotPermissions 保存 Bot 在單一聊天中的最小管理權限。
+type BotPermissions struct {
+	Status             string
+	CanDeleteMessages  bool
+	CanRestrictMembers bool
+}
+
 // NewClient 建立重用 Transport 且具有整體逾時的 Telegram Client。
 func NewClient(baseURL, token string, client *http.Client) (*Client, error) {
 	if token == "" {
@@ -120,6 +135,15 @@ func (c *Client) GetMe(ctx context.Context) (BotIdentity, error) {
 	return identity, nil
 }
 
+// GetWebhookInfo 取得目前 Webhook 狀態，供啟動與定期健康檢查使用。
+func (c *Client) GetWebhookInfo(ctx context.Context) (WebhookInfo, error) {
+	var info WebhookInfo
+	if err := c.callResult(ctx, "getWebhookInfo", map[string]any{}, &info); err != nil {
+		return WebhookInfo{}, err
+	}
+	return info, nil
+}
+
 // IsAdmin 即時查詢成員狀態，避免沿用已撤銷權限的快取。
 func (c *Client) IsAdmin(ctx context.Context, chatID, userID int64) (bool, error) {
 	var result struct {
@@ -129,6 +153,28 @@ func (c *Client) IsAdmin(ctx context.Context, chatID, userID int64) (bool, error
 		return false, err
 	}
 	return result.Status == "creator" || result.Status == "administrator", nil
+}
+
+// BotPermissions 查詢 Bot 在指定聊天中的管理狀態與必要處置權限。
+func (c *Client) BotPermissions(ctx context.Context, chatID, botID int64) (BotPermissions, error) {
+	var result struct {
+		Status             string `json:"status"`
+		CanDeleteMessages  bool   `json:"can_delete_messages"`
+		CanRestrictMembers bool   `json:"can_restrict_members"`
+	}
+	if err := c.callResult(ctx, "getChatMember", map[string]any{"chat_id": chatID, "user_id": botID}, &result); err != nil {
+		return BotPermissions{}, err
+	}
+	permissions := BotPermissions{
+		Status:             result.Status,
+		CanDeleteMessages:  result.CanDeleteMessages,
+		CanRestrictMembers: result.CanRestrictMembers,
+	}
+	if result.Status == "creator" {
+		permissions.CanDeleteMessages = true
+		permissions.CanRestrictMembers = true
+	}
+	return permissions, nil
 }
 
 // AdminIDs 取得管理員識別碼供偵測前豁免使用。

@@ -88,11 +88,13 @@ func TestClientCommandMethods(t *testing.T) {
 		case "/bottoken/getMe":
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":99,"username":"liyu_spam_bot"}}`))
 		case "/bottoken/getChatMember":
-			_, _ = w.Write([]byte(`{"ok":true,"result":{"status":"administrator"}}`))
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"status":"administrator","can_delete_messages":true,"can_restrict_members":true}}`))
 		case "/bottoken/getChat":
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"permissions":{"can_send_messages":true}}}`))
 		case "/bottoken/getChatAdministrators":
 			_, _ = w.Write([]byte(`{"ok":true,"result":[{"user":{"id":7}},{"user":{"id":8}}]}`))
+		case "/bottoken/getWebhookInfo":
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"url":"https://example.com/telegram/webhook","pending_update_count":2}}`))
 		default:
 			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 		}
@@ -110,6 +112,14 @@ func TestClientCommandMethods(t *testing.T) {
 	if err != nil || !admin {
 		t.Fatalf("IsAdmin() = %v, %v", admin, err)
 	}
+	webhook, err := client.GetWebhookInfo(t.Context())
+	if err != nil || webhook.URL != "https://example.com/telegram/webhook" || webhook.PendingUpdateCount != 2 {
+		t.Fatalf("GetWebhookInfo()=%+v, %v", webhook, err)
+	}
+	permissions, err := client.BotPermissions(t.Context(), -1001, 99)
+	if err != nil || !permissions.CanDeleteMessages || !permissions.CanRestrictMembers {
+		t.Fatalf("BotPermissions()=%+v, %v", permissions, err)
+	}
 	for _, call := range []func() error{
 		func() error { return client.SendWarning(t.Context(), -1001, 3, "警告") },
 		func() error { return client.SendMessage(t.Context(), -1001, 2, "完成") },
@@ -126,8 +136,28 @@ func TestClientCommandMethods(t *testing.T) {
 	if err != nil || len(admins) != 2 || admins[0] != 7 {
 		t.Fatalf("AdminIDs()=%v, %v", admins, err)
 	}
-	if len(paths) != 10 {
-		t.Fatalf("API 呼叫數 = %d，預期 10：%v", len(paths), paths)
+	if len(paths) != 12 {
+		t.Fatalf("API 呼叫數 = %d，預期 12：%v", len(paths), paths)
+	}
+}
+
+func TestClientBotPermissionsTreatsCreatorAsAllowed(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"status":"creator"}}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissions, err := client.BotPermissions(t.Context(), -1001, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !permissions.CanDeleteMessages || !permissions.CanRestrictMembers {
+		t.Fatalf("creator 應視為具備必要權限：%+v", permissions)
 	}
 }
 

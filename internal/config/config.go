@@ -84,6 +84,8 @@ type Config struct {
 		BotToken string `mapstructure:"bot_token"`
 		// WebhookSecret 用於固定時間比較 Telegram Secret Header。
 		WebhookSecret string `mapstructure:"webhook_secret"`
+		// WebhookURL 是健康檢查用的公開 Webhook URL；留空時只確認 Telegram 已設定 Webhook。
+		WebhookURL string `mapstructure:"webhook_url"`
 		// AllowedChatIDs 限制可進入偵測流程的 Telegram 群組，避免 Bot 被加入未授權群組後誤執行處置。
 		AllowedChatIDs []int64 `mapstructure:"allowed_chat_ids"`
 	} `mapstructure:"telegram"`
@@ -247,9 +249,10 @@ func envBindings() map[string]string {
 		"log.rotate.compress": "LOG_ROTATE_COMPRESS",
 		"db.url":              "DATABASE_URL", "db.name": "DB_NAME", "db.primary.host": "DB_HOST", "db.primary.port": "DB_PORT",
 		"db.primary.user": "DB_USER", "db.primary.password": "DB_PASSWORD", "telegram.bot_token": "TELEGRAM_BOT_TOKEN",
-		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
-		"redis.addr":     "REDIS_ADDR",
-		"redis.username": "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
+		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.webhook_url": "TELEGRAM_WEBHOOK_URL",
+		"telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
+		"redis.addr":                "REDIS_ADDR",
+		"redis.username":            "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
 		"security.content_hash_key": "CONTENT_HASH_KEY", "rules.dir": "RULES_DIR",
 		"auto_replies.enabled": "AUTO_REPLIES_ENABLED", "auto_replies.rules_file": "AUTO_REPLIES_RULES_FILE",
 	}

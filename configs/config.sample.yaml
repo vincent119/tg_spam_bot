@@ -63,6 +63,8 @@ db:
 telegram:
   bot_token: "" # ENV: TELEGRAM_BOT_TOKEN
   webhook_secret: "" # ENV: TELEGRAM_WEBHOOK_SECRET
+  # 可選；設定後啟動與定期健康檢查會比對 Telegram 實際 Webhook URL。
+  webhook_url: "" # ENV: TELEGRAM_WEBHOOK_URL
   # 僅處理清單內的 group 或 supergroup；可用逗號分隔的 TELEGRAM_ALLOWED_CHAT_IDS 覆寫。
   allowed_chat_ids:
     - -1001234567890

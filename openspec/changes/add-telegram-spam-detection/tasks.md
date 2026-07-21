@@ -49,7 +49,7 @@
 
 - [x] 7.1 以依賴注入組裝設定、規則快照、repositories、Redis 或記憶體狀態、Telegram Client、Webhook server 與 worker
 - [x] 7.2 使用 `signal.NotifyContext` 或 `commons/graceful` 實作 SIGINT、SIGTERM 優雅關機，確保 HTTP、worker、資料庫、Redis 及清理 goroutine 依序收斂
-- [ ] 7.3 新增啟動與定期健康檢查，驗證 Bot 身分、Webhook 設定及 `can_delete_messages`、`can_restrict_members` 最小權限
+- [x] 7.3 新增啟動與定期健康檢查，驗證 Bot 身分、Webhook 設定及 `can_delete_messages`、`can_restrict_members` 最小權限
 - [x] 7.4 建立非 root 多階段 Dockerfile、`.dockerignore` 與容器健康檢查，確保 image 不包含秘密值或開發產物
 - [x] 7.5 建立 `docker-compose.yaml`，定義 app、PostgreSQL、Redis、健康相依、隔離 network、PostgreSQL named volume、唯讀規則掛載及環境變數注入
 - [x] 7.6 驗證 `docker compose config`、缺少秘密值拒絕啟動、服務健康順序、migration、重新啟動資料保存及優雅停止

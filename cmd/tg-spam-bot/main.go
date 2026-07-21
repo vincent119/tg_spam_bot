@@ -176,6 +176,14 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("驗證 Telegram Bot 身分：%w", err)
 	}
+	telegramHealth, err := newTelegramHealthMonitor(telegram, cfg.Telegram.AllowedChatIDs, cfg.Telegram.WebhookURL)
+	if err != nil {
+		return err
+	}
+	if err := telegramHealth.checkWithTimeout(ctx); err != nil {
+		return err
+	}
+	go telegramHealth.start(ctx)
 	exemptions, err := application.NewCachedExemptions(postgresStore, telegram, 5*time.Minute)
 	if err != nil {
 		return err
@@ -223,6 +231,10 @@ func run(cfg config.Config) error {
 		defer cancel()
 		if err := sqlDB.PingContext(checkCtx); err != nil || redisClient.Ping(checkCtx).Err() != nil {
 			c.String(http.StatusServiceUnavailable, "not ready")
+			return
+		}
+		if err := telegramHealth.lastErr(); err != nil {
+			c.String(http.StatusServiceUnavailable, "telegram not ready")
 			return
 		}
 		c.Status(http.StatusNoContent)

@@ -53,6 +53,7 @@ cp .env.example .env
 POSTGRES_PASSWORD=請設定安全的資料庫密碼
 TELEGRAM_BOT_TOKEN=由BotFather取得的Token
 TELEGRAM_WEBHOOK_SECRET=請使用下方命令產生
+TELEGRAM_WEBHOOK_URL=https://你的網域/telegram/webhook
 CONTENT_HASH_KEY=請使用下方命令產生
 ```
 
@@ -189,6 +190,7 @@ https://你的網域/telegram/webhook
 export TELEGRAM_BOT_TOKEN='由BotFather取得的Token'
 export TELEGRAM_WEBHOOK_SECRET='與服務設定相同的Secret'
 export PUBLIC_BASE_URL='https://你的網域'
+export TELEGRAM_WEBHOOK_URL="${PUBLIC_BASE_URL}/telegram/webhook"
 ```
 
 註冊 Webhook：
@@ -207,7 +209,7 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
-`getWebhookInfo` 的 `url` 必須正確，`pending_update_count` 應持續下降，`last_error_message` 應為空。Webhook 與 long polling 不能同時使用。
+`getWebhookInfo` 的 `url` 必須正確，`pending_update_count` 應持續下降，`last_error_message` 應為空。若設定 `TELEGRAM_WEBHOOK_URL`，服務啟動與定期健康檢查會比對 Telegram 實際回傳的 URL。Webhook 與 long polling 不能同時使用。
 
 移除 Webhook：
 
@@ -327,6 +329,7 @@ rules:
 | `HTTP_ADDR` | 完整監聽位址，例如 `:8080` | 否 |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 是 |
 | `TELEGRAM_WEBHOOK_SECRET` | Webhook Secret Header 驗證值 | 是 |
+| `TELEGRAM_WEBHOOK_URL` | 公開 Webhook URL；設定後健康檢查會比對 Telegram 實際設定 | 否 |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | 允許處理的群組 ID，包含多筆時以逗號分隔 | 是 |
 | `DATABASE_URL` | 完整 PostgreSQL DSN，設定後覆蓋 DB 分項 | 擇一 |
 | `DB_NAME`、`DB_HOST`、`DB_PORT` | PostgreSQL 位置 | 擇一 |
@@ -464,7 +467,7 @@ DO UPDATE SET reason = EXCLUDED.reason, enabled = EXCLUDED.enabled;
 |---|---|---|---|
 | `POST` | `/telegram/webhook` | 接收 Telegram Update | `204` |
 | `GET` | `/health/live` | 確認程序仍在運作 | `204` |
-| `GET` | `/health/ready` | 確認 PostgreSQL 與 Redis 可用 | `204` |
+| `GET` | `/health/ready` | 確認 PostgreSQL、Redis 與最近一次 Telegram 健康檢查可用 | `204` |
 
 檢查本機健康狀態：
 
@@ -473,7 +476,7 @@ curl -i http://127.0.0.1:8080/health/live
 curl -i http://127.0.0.1:8080/health/ready
 ```
 
-服務啟動時會以 `getMe` 驗證 Telegram Bot 身分；目前 `/health/ready` 尚未驗證 Webhook URL、`can_delete_messages` 或 `can_restrict_members`。部署時仍需使用 `getWebhookInfo` 及群組管理員設定人工確認。
+服務啟動時會驗證 Telegram Bot 身分、Webhook 已設定，以及每個 `telegram.allowed_chat_ids` 內 Bot 具備 `can_delete_messages` 與 `can_restrict_members`。啟動後服務每 5 分鐘重跑一次 Telegram 健康檢查；失敗時 `/health/ready` 會回 `503`，日誌會以 `subsystem=health` 記錄原因。
 
 目前服務只有 Telegram Webhook 與健康端點，尚未提供管理 REST API，因此沒有 Swagger UI 或 OpenAPI 文件端點。
 

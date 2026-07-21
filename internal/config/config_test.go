@@ -82,6 +82,7 @@ func TestLoadStructuredSample(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "secret")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
 	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "webhook-secret")
+	t.Setenv("TELEGRAM_WEBHOOK_URL", "https://example.com/telegram/webhook")
 	t.Setenv("TELEGRAM_ALLOWED_CHAT_IDS", "-1001234567890,-1009876543210")
 	t.Setenv("CONTENT_HASH_KEY", "01234567890123456789012345678901")
 	t.Setenv("REDIS_USERNAME", "app")
@@ -153,6 +154,9 @@ auto_replies:
 	}
 	if len(cfg.Telegram.AllowedChatIDs) != 2 || cfg.Telegram.AllowedChatIDs[0] != -1001234567890 {
 		t.Fatalf("未正確載入 Telegram 允許群組：%+v", cfg.Telegram.AllowedChatIDs)
+	}
+	if cfg.Telegram.WebhookURL != "https://example.com/telegram/webhook" {
+		t.Fatalf("未正確載入 Telegram Webhook URL：%q", cfg.Telegram.WebhookURL)
 	}
 	if !cfg.AutoReplies.Enabled || cfg.AutoReplies.RulesFile != "configs/auto_replies.yaml" {
 		t.Fatalf("未正確載入自動回覆設定：%+v", cfg.AutoReplies)
