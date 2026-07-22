@@ -264,6 +264,8 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 
 `/feedspam [分類]` 只提交漏網垃圾樣本並同步產生 embedding，資料庫保存 fingerprint、分類、管理員與目標識別、embedding provider/model/version/dimensions，不保存完整原文。此指令不得刪除、警告、禁言、封鎖或修改 `configs/rules/*.yaml`。分類只能包含英文字母、數字、底線或連字號，最多 64 個字元。
 
+`/feedspam` 需要 `semantic_memory.enabled=true`，且 embedding provider 必須可呼叫成功。若使用 AWS Bedrock，需等 Bedrock Runtime 帳號放行後再啟用；放行前請保持 `SEMANTIC_MEMORY_ENABLED=false`，避免管理員提交樣本時因 embedding provider 失敗而無法完成。
+
 ### 設定 BotFather 指令清單
 
 對 `@BotFather` 執行 `/setcommands`，選擇 Bot 後貼上：
@@ -324,13 +326,19 @@ rules:
 
 設定範例位於 `configs/config.sample.yaml`。實際執行可透過 `CONFIG_FILE` 指定 YAML；環境變數優先於 YAML，適合用來注入秘密值。
 
-主要環境變數：
+完整環境變數對照：
 
 | 環境變數 | 用途 | 必要性 |
 |---|---|---|
 | `CONFIG_FILE` | YAML 設定檔路徑 | 直接執行時建議設定 |
+| `APP_PORT` | HTTP 監聽連接埠；未設定 `HTTP_ADDR` 時使用 | 否，預設 `8080` |
+| `APP_ENV` | 部署環境識別，會進入日誌欄位 | 否，預設 `dev` |
 | `APP_MODE` | `observe`、`delete-only` 或 `enforce` | 否，預設 `observe` |
 | `HTTP_ADDR` | 完整監聽位址，例如 `:8080` | 否 |
+| `BUSINESS_TIMEZONE` | 業務顯示時區；資料庫仍以 UTC 儲存 | 否，預設 `Asia/Taipei` |
+| `READ_TIMEOUT` | HTTP request 讀取逾時 | 否，預設 `10s` |
+| `WRITE_TIMEOUT` | HTTP response 寫入逾時 | 否，預設 `30s` |
+| `SHUTDOWN_TIMEOUT` | 優雅關機等待時間 | 否，預設 `30s` |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 是 |
 | `TELEGRAM_WEBHOOK_SECRET` | Webhook Secret Header 驗證值 | 是 |
 | `TELEGRAM_WEBHOOK_URL` | 公開 Webhook URL；設定後健康檢查會比對 Telegram 實際設定 | 否 |
@@ -345,6 +353,8 @@ rules:
 | `REDIS_DB` | Redis logical database | 否，預設 `0` |
 | `CONTENT_HASH_KEY` | 產生不可逆內容指紋的金鑰 | 是，至少 32 字元 |
 | `RULES_DIR` | 規則 YAML 目錄 | 否 |
+| `AUTO_REPLIES_ENABLED` | 是否啟用固定問答自動回覆 | 否，預設 `false` |
+| `AUTO_REPLIES_RULES_FILE` | 自動回覆規則 YAML 路徑 | 啟用自動回覆時必填 |
 | `LOG_LEVEL` | 日誌等級，例如 `debug`、`info` | 否，預設 `info` |
 | `LOG_FORMAT` | 日誌編碼格式，支援 `json` 或 `console` | 否，預設 `json` |
 | `LOG_OUTPUTS` | 日誌輸出目的地，支援 `console`、`file` | 否，預設 `console` |
@@ -359,17 +369,53 @@ rules:
 | `AI_DETECTION_ENABLED` | 是否啟用 AI 輔助判定 | 否，預設 `false` |
 | `AI_DETECTION_MODE` | AI 結果模式，支援 `observe`、`delete-only`、`enforce` | 否，預設 `observe` |
 | `AI_DETECTION_PROVIDER` | AI provider，支援 `openai_compatible`、`bedrock` | 啟用 AI 時必填 |
-| `AI_DETECTION_OPENAI_COMPATIBLE_*` | OpenAI-compatible endpoint、model、API key | provider 為 `openai_compatible` 時必填 |
-| `AI_DETECTION_BEDROCK_*` | Bedrock region、model id、auth mode 與可選 static keys | provider 為 `bedrock` 時必填 |
+| `AI_DETECTION_TIMEOUT` | 單次 AI provider 呼叫逾時 | 否，預設 `3s` |
+| `AI_DETECTION_MAX_TEXT_CHARS` | 送給 AI provider 的文字長度上限 | 否，預設 `800` |
+| `AI_DETECTION_MIN_CONFIDENCE` | AI spam 結果可被採用的最低信心分數 | 否，預設 `0.85` |
+| `AI_DETECTION_ONLY_WHEN_AMBIGUOUS` | 是否只在規則模糊時呼叫 AI | 否，預設 `true` |
+| `AI_DETECTION_CACHE_TTL` | AI 判定快取時間 | 否，預設 `24h` |
+| `AI_DETECTION_OPENAI_COMPATIBLE_ENDPOINT` | OpenAI-compatible API endpoint | provider 為 `openai_compatible` 時必填 |
+| `AI_DETECTION_OPENAI_COMPATIBLE_MODEL` | OpenAI-compatible classifier 模型名稱 | provider 為 `openai_compatible` 時必填 |
+| `AI_DETECTION_OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible API key | provider 為 `openai_compatible` 時必填 |
+| `AI_DETECTION_BEDROCK_REGION` | Bedrock classifier region | provider 為 `bedrock` 時必填 |
+| `AI_DETECTION_BEDROCK_MODEL_ID` | Bedrock classifier model id | provider 為 `bedrock` 時必填 |
+| `AI_DETECTION_BEDROCK_AUTH_MODE` | `iam_role` 或 `static_keys` | 否，預設 `iam_role` |
+| `AI_DETECTION_BEDROCK_ACCESS_KEY_ID` | Bedrock static key access key id | `static_keys` 時必填 |
+| `AI_DETECTION_BEDROCK_SECRET_ACCESS_KEY` | Bedrock static key secret access key | `static_keys` 時必填 |
+| `AI_DETECTION_BEDROCK_SESSION_TOKEN` | Bedrock temporary credential session token | 否 |
 | `SEMANTIC_MEMORY_ENABLED` | 是否啟用 pgvector 語意記憶 | 否，預設 `false` |
 | `SEMANTIC_MEMORY_EMBEDDING_PROVIDER` | embedding provider，支援 `openai_compatible`、`bedrock` | 啟用語意記憶時必填 |
+| `SEMANTIC_MEMORY_EMBEDDING_VERSION` | embedding 版本，用於隔離不同模型或 schema | 否，預設 `v1` |
 | `SEMANTIC_MEMORY_EMBEDDING_DIMENSIONS` | embedding vector 維度；`0` 表示由 adapter 首次結果決定 | 否，預設 `0` |
+| `SEMANTIC_MEMORY_SIMILARITY_THRESHOLD` | 一般相似案例門檻 | 否，預設 `0.88` |
 | `SEMANTIC_MEMORY_SPAM_SIMILARITY_THRESHOLD` | spam 相似案例輔助訊號門檻 | 否，預設 `0.90` |
 | `SEMANTIC_MEMORY_HAM_SIMILARITY_THRESHOLD` | ham 相似案例輔助訊號門檻 | 否，預設 `0.95` |
 | `SEMANTIC_MEMORY_MAX_NEIGHBORS` | 單次相似查詢候選數 | 否，預設 `5` |
 | `SEMANTIC_MEMORY_CACHE_TTL` | embedding 記憶保存時間 | 否，預設 `168h` |
-| `SEMANTIC_MEMORY_OPENAI_COMPATIBLE_*` | embedding OpenAI-compatible endpoint、model、API key | provider 為 `openai_compatible` 時必填 |
-| `SEMANTIC_MEMORY_BEDROCK_*` | embedding Bedrock region、model id、auth mode 與可選 static keys | provider 為 `bedrock` 時必填 |
+| `SEMANTIC_MEMORY_OPENAI_COMPATIBLE_ENDPOINT` | OpenAI-compatible embedding API endpoint | provider 為 `openai_compatible` 時必填 |
+| `SEMANTIC_MEMORY_OPENAI_COMPATIBLE_MODEL` | OpenAI-compatible embedding 模型名稱 | provider 為 `openai_compatible` 時必填 |
+| `SEMANTIC_MEMORY_OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible embedding API key | provider 為 `openai_compatible` 時必填 |
+| `SEMANTIC_MEMORY_BEDROCK_REGION` | Bedrock embedding region | provider 為 `bedrock` 時必填 |
+| `SEMANTIC_MEMORY_BEDROCK_MODEL_ID` | Bedrock embedding model id | provider 為 `bedrock` 時必填 |
+| `SEMANTIC_MEMORY_BEDROCK_AUTH_MODE` | `iam_role` 或 `static_keys` | 否，預設 `iam_role` |
+| `SEMANTIC_MEMORY_BEDROCK_ACCESS_KEY_ID` | Bedrock embedding static key access key id | `static_keys` 時必填 |
+| `SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY` | Bedrock embedding static key secret access key | `static_keys` 時必填 |
+| `SEMANTIC_MEMORY_BEDROCK_SESSION_TOKEN` | Bedrock embedding temporary credential session token | 否 |
+
+以下欄位目前只支援 YAML 設定，沒有環境變數覆寫：
+
+| YAML 欄位 | 用途 |
+|---|---|
+| `app.max_body_bytes` | Telegram Webhook body 大小上限，預設 `1048576` |
+| `db.replicas` | 預留唯讀節點，目前尚未啟用讀寫分離 |
+| `db.max_open_conns` | PostgreSQL 最大開啟連線數，預設 `25` |
+| `db.max_idle_conns` | PostgreSQL 最大閒置連線數，預設 `5` |
+| `db.conn_max_lifetime` | PostgreSQL 連線最大生命週期，預設 `5m` |
+| `db.tls.enabled` | 是否啟用 PostgreSQL TLS |
+| `db.tls.mode` | PostgreSQL TLS `sslmode`，預設 `verify-full` |
+| `db.tls.ca_cert` | PostgreSQL TLS CA 憑證路徑 |
+| `db.tls.client_cert` | PostgreSQL TLS client cert 路徑 |
+| `db.tls.client_key` | PostgreSQL TLS client key 路徑 |
 
 AI 與語意記憶預設停用。OpenAI-compatible 使用 API key；AWS Bedrock 正式環境建議使用 IAM Role，只有 `auth_mode=static_keys` 時才需要 access key id 與 secret access key。所有 key 都只能由環境變數、Secret Manager 或部署平台注入，不得寫入設定檔實值。
 
@@ -386,6 +432,8 @@ AI 與語意記憶預設停用。OpenAI-compatible 使用 API key；AWS Bedrock 
 語意記憶需要 PostgreSQL 已安裝 pgvector extension。啟用 `semantic_memory.enabled=true` 時，服務啟動會檢查 extension，並建立 `message_embeddings`、`semantic_blacklist_categories`、`semantic_blacklist_examples`。不同 provider、model、version、dimensions 的向量會隔離查詢。
 
 `/feedspam [分類]` 是人工回饋入口。管理員必須回覆漏網垃圾訊息送出，服務會在原文仍在記憶體時同步產生 embedding，只保存內容 fingerprint、分類、操作者、目標識別與 embedding metadata，不保存完整原文，也不會修改 YAML。
+
+Bedrock Runtime 尚未被 AWS allowlisting 放行前，不要在正式群組推廣 `/feedspam`。可以先把 BotFather 指令清單與文件補齊，但正式操作流程應等 `invoke-model` 與 `converse` CLI 驗證通過後再開放。
 
 成本與隱私注意事項：
 
