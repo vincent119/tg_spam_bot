@@ -351,7 +351,11 @@ func (h *Handler) fail(ctx context.Context, command domain.Command, public strin
 	_ = h.telegram.SendMessage(ctx, command.ChatID, command.MessageID, message)
 	fields := commandLogFields(command, result)
 	fields = append(fields, zlogger.Err(cause))
-	zlogger.ErrorContext(ctx, "Telegram 管理指令執行失敗", fields...)
+	if retryable {
+		zlogger.ErrorContext(ctx, "Telegram 管理指令執行失敗", fields...)
+	} else {
+		zlogger.DebugContext(ctx, "Telegram 管理指令不可重試失敗", fields...)
+	}
 	return fmt.Errorf("%s：%w", public, cause)
 }
 

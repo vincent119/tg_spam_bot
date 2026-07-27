@@ -158,17 +158,20 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch disposition {
 		case CommandHandle:
 			if err := h.commands.Handle(ctx, command); err != nil {
-				zlogger.ErrorContext(ctx, "處理 Telegram 管理指令失敗",
+				retryable := isRetryableError(err)
+				fields := []zlogger.Field{
 					zlogger.String("subsystem", "webhook"),
 					zlogger.Int64("update_id", update.UpdateID),
 					zlogger.Int64("chat_id", update.Message.Chat.ID),
 					zlogger.String("command", string(command.Name)),
 					zlogger.Err(err),
-				)
-				if !isRetryableError(err) {
+				}
+				if !retryable {
+					zlogger.DebugContext(ctx, "處理 Telegram 管理指令不可重試失敗", fields...)
 					w.WriteHeader(http.StatusNoContent)
 					return
 				}
+				zlogger.ErrorContext(ctx, "處理 Telegram 管理指令失敗", fields...)
 				http.Error(w, "temporary command failure", http.StatusServiceUnavailable)
 				return
 			}

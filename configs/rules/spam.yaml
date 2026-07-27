@@ -1,4 +1,4 @@
-version: "2026-07-27.1"
+version: "2026-07-27.2"
 categories:
   - id: counterfeit
     name: 偽鈔交易
@@ -29,6 +29,16 @@ categories:
     enabled: true
     terms: [免費領取, 高薪兼職, 長期穩定供應, 包養, 廣告, 群組投放, 誠招代理, 代理加入, guaranteed profit, earn money fast]
     aliases: [免费领取, 高薪兼职, 长期稳定供应, 包养, 广告, 群组投放, 诚招代理]
+    require_any: []
+  - id: contraband_device_promo
+    name: 管制品與電子產品批發廣告
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [七氟烷, 美卡, 批發, 面交, 水果機, 全系機, 國行正品, 帶票無憂]
+    aliases: [批发, 水果机, 全系机, 国行正品, 带票无忧, 接批发, 接面交]
     require_any: []
   - id: spam_campaign_promo
     name: 活動型廣告文案
