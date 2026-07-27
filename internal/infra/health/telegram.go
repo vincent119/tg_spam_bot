@@ -1,4 +1,5 @@
-package main
+// Package health 提供外部依賴的健康檢查與 readiness 狀態追蹤。
+package health
 
 import (
 	"context"
@@ -13,18 +14,20 @@ import (
 )
 
 const (
-	telegramHealthCheckInterval = 5 * time.Minute
-	telegramHealthCheckTimeout  = 10 * time.Second
+	telegramCheckInterval = 5 * time.Minute
+	telegramCheckTimeout  = 10 * time.Second
 )
 
-type telegramHealthClient interface {
+// TelegramClient 描述 Telegram 健康檢查需要的最小能力。
+type TelegramClient interface {
 	GetMe(ctx context.Context) (tgclient.BotIdentity, error)
 	GetWebhookInfo(ctx context.Context) (tgclient.WebhookInfo, error)
 	BotPermissions(ctx context.Context, chatID, botID int64) (tgclient.BotPermissions, error)
 }
 
-type telegramHealthMonitor struct {
-	client             telegramHealthClient
+// TelegramMonitor 定期驗證 Bot 身分、Webhook 與群組權限。
+type TelegramMonitor struct {
+	client             TelegramClient
 	allowedChatIDs     []int64
 	expectedWebhookURL string
 	interval           time.Duration
@@ -34,24 +37,25 @@ type telegramHealthMonitor struct {
 	lastError error
 }
 
-func newTelegramHealthMonitor(client telegramHealthClient, allowedChatIDs []int64, expectedWebhookURL string) (*telegramHealthMonitor, error) {
+// NewTelegramMonitor 建立 Telegram readiness 監控器。
+func NewTelegramMonitor(client TelegramClient, allowedChatIDs []int64, expectedWebhookURL string) (*TelegramMonitor, error) {
 	if client == nil {
 		return nil, errors.New("telegram health client 不得為空")
 	}
 	if len(allowedChatIDs) == 0 {
 		return nil, errors.New("telegram health allowed chat ids 不得為空")
 	}
-	return &telegramHealthMonitor{
+	return &TelegramMonitor{
 		client:             client,
 		allowedChatIDs:     append([]int64(nil), allowedChatIDs...),
 		expectedWebhookURL: strings.TrimSpace(expectedWebhookURL),
-		interval:           telegramHealthCheckInterval,
-		timeout:            telegramHealthCheckTimeout,
+		interval:           telegramCheckInterval,
+		timeout:            telegramCheckTimeout,
 	}, nil
 }
 
-// check 驗證 Bot 身分、Webhook 已設定，以及每個允許群組具備最小管理權限。
-func (m *telegramHealthMonitor) check(ctx context.Context) error {
+// Check 驗證 Bot 身分、Webhook 已設定，以及每個允許群組具備最小管理權限。
+func (m *TelegramMonitor) Check(ctx context.Context) error {
 	identity, err := m.client.GetMe(ctx)
 	if err != nil {
 		return fmt.Errorf("驗證 Telegram Bot 身分：%w", err)
@@ -92,15 +96,17 @@ func (m *telegramHealthMonitor) check(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (m *telegramHealthMonitor) checkWithTimeout(ctx context.Context) error {
+// CheckWithTimeout 以監控器設定的 timeout 執行一次檢查並更新最後狀態。
+func (m *TelegramMonitor) CheckWithTimeout(ctx context.Context) error {
 	checkCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
-	err := m.check(checkCtx)
+	err := m.Check(checkCtx)
 	m.setLastError(err)
 	return err
 }
 
-func (m *telegramHealthMonitor) start(ctx context.Context) {
+// Start 開始週期性健康檢查，直到 ctx 結束。
+func (m *TelegramMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	for {
@@ -108,7 +114,7 @@ func (m *telegramHealthMonitor) start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := m.checkWithTimeout(ctx); err != nil {
+			if err := m.CheckWithTimeout(ctx); err != nil {
 				zlogger.ErrorContext(ctx, "Telegram 健康檢查失敗",
 					zlogger.String("subsystem", "health"),
 					zlogger.Err(err),
@@ -122,14 +128,15 @@ func (m *telegramHealthMonitor) start(ctx context.Context) {
 	}
 }
 
-func (m *telegramHealthMonitor) setLastError(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastError = err
-}
-
-func (m *telegramHealthMonitor) lastErr() error {
+// LastErr 回傳最近一次健康檢查錯誤。
+func (m *TelegramMonitor) LastErr() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.lastError
+}
+
+func (m *TelegramMonitor) setLastError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastError = err
 }

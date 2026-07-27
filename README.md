@@ -457,7 +457,7 @@ log:
   file: app.log
 ```
 
-檔案日誌輪轉由 `log.rotate` 控制，只有 `outputs` 包含 `file` 且 `rotate.enabled=true` 時才生效：
+檔案日誌輪轉由 `log.rotate` 控制，只有 `outputs` 包含 `file` 且 `rotate.enabled=true` 時才生效。啟用後，實際檔名會以日期作為前綴；例如 `file: app.log` 會寫入 `2026-07-27.app.log`，跨日後的下一筆日誌會切到 `2026-07-28.app.log`：
 
 ```yaml
 log:
@@ -471,6 +471,8 @@ log:
     max_age_days: 30
     compress: true
 ```
+
+`max_age_days` 控制每日檔案與大小輪轉備份的保留天數，不是每日輪轉的觸發開關。`max_backups` 會限制舊每日檔與大小輪轉備份的保留數量。每日輪轉由應用程式在寫入日誌時檢查日期變更後執行。
 
 `log.max_files` 是 deprecated 相容欄位。`rotate.enabled=false` 且 `max_files>0` 時，服務啟動時仍會保留最新的 `.log` 檔案並清理較舊檔案；`rotate.enabled=true` 時不會執行這個舊清理流程，避免與正式輪轉重疊。
 

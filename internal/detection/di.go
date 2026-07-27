@@ -1,4 +1,4 @@
-package main
+package detection
 
 import (
 	"context"
@@ -13,20 +13,22 @@ import (
 
 const aiSchemaVersion = "ai-result-v1"
 
-type aiComponents struct {
-	processor       *detectionapp.AIDetectionProcessor
-	feedSpamService *detectionapp.ManualFeedService
+// AIComponents 是 detection bounded context 的 AI 相關組裝結果。
+type AIComponents struct {
+	Processor       *detectionapp.AIDetectionProcessor
+	FeedSpamService *detectionapp.ManualFeedService
 }
 
-func buildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgres.Store) (aiComponents, error) {
-	var components aiComponents
+// BuildAIComponents 依設定建立 AI 偵測與語意記憶相關元件。
+func BuildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgres.Store) (AIComponents, error) {
+	var components AIComponents
 	var semantic *detectionapp.SemanticLookupPolicy
 	var embeddings detectionapp.EmbeddingProvider
 
 	if cfg.SemanticMemory.Enabled {
 		provider, err := buildEmbeddingProvider(ctx, cfg.SemanticMemory)
 		if err != nil {
-			return aiComponents{}, err
+			return AIComponents{}, err
 		}
 		embeddings = provider
 		semantic = &detectionapp.SemanticLookupPolicy{
@@ -39,9 +41,9 @@ func buildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgre
 		}
 		feedSpamService, err := detectionapp.NewManualFeedService(store, embeddings, store)
 		if err != nil {
-			return aiComponents{}, fmt.Errorf("建立 feedspam service：%w", err)
+			return AIComponents{}, fmt.Errorf("建立 feedspam service：%w", err)
 		}
-		components.feedSpamService = feedSpamService
+		components.FeedSpamService = feedSpamService
 	}
 
 	if !cfg.AIDetection.Enabled {
@@ -49,7 +51,7 @@ func buildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgre
 	}
 	classifier, err := buildAIClassifier(ctx, cfg.AIDetection)
 	if err != nil {
-		return aiComponents{}, err
+		return AIComponents{}, err
 	}
 	processor, err := detectionapp.NewAIDetectionProcessor(detectionapp.AIDetectionProcessorPolicy{
 		Enabled:       cfg.AIDetection.Enabled,
@@ -63,9 +65,9 @@ func buildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgre
 		CacheTTL:      cfg.AIDetection.CacheTTL,
 	}, detectionapp.AITriggerPolicy{OnlyWhenAmbiguous: cfg.AIDetection.OnlyWhenAmbiguous}, store, classifier, semantic)
 	if err != nil {
-		return aiComponents{}, fmt.Errorf("建立 AI 偵測 processor：%w", err)
+		return AIComponents{}, fmt.Errorf("建立 AI 偵測 processor：%w", err)
 	}
-	components.processor = processor
+	components.Processor = processor
 	return components, nil
 }
 
@@ -118,11 +120,12 @@ func aiDetectionModel(cfg appconfig.AIDetectionConfig) string {
 	}
 }
 
-func validateAIComponents(cfg appconfig.Config, components aiComponents) error {
-	if cfg.AIDetection.Enabled && components.processor == nil {
+// ValidateAIComponents 確認啟用的 AI 功能已完成必要元件組裝。
+func ValidateAIComponents(cfg appconfig.Config, components AIComponents) error {
+	if cfg.AIDetection.Enabled && components.Processor == nil {
 		return errors.New("AI 偵測已啟用但 processor 未建立")
 	}
-	if cfg.SemanticMemory.Enabled && components.feedSpamService == nil {
+	if cfg.SemanticMemory.Enabled && components.FeedSpamService == nil {
 		return errors.New("語意記憶已啟用但 feedspam service 未建立")
 	}
 	return nil

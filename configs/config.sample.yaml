@@ -23,6 +23,7 @@ log:
   outputs:
     - console
   path: ./logs
+  # 啟用 rotate 且 outputs 包含 file 時，實際檔名會加上日期前綴，例如 2026-07-27.app.log。
   file: app.log
   # Deprecated：未啟用 rotate 時，啟動時只保留 path 中最新的 .log 檔案數量；0 表示不清理。
   max_files: 14
@@ -31,9 +32,9 @@ log:
     enabled: false
     # 0 表示使用預設 100 MB。
     max_size_mb: 100
-    # 0 表示不限制備份數。
+    # 舊每日檔與大小輪轉備份保留數；0 表示不限制數量。
     max_backups: 14
-    # 0 表示不依天數刪除。
+    # 每日檔案保留天數；0 表示不依天數刪除。
     max_age_days: 30
     compress: true
 

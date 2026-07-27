@@ -13,6 +13,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/spf13/viper v1.21.0
+	github.com/vincent119/commons v0.2.5
 	github.com/vincent119/zlogger v1.0.5
 	go.uber.org/zap v1.27.0
 	golang.org/x/text v0.40.0
