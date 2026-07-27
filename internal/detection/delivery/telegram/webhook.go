@@ -165,6 +165,10 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					zlogger.String("command", string(command.Name)),
 					zlogger.Err(err),
 				)
+				if !isRetryableError(err) {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
 				http.Error(w, "temporary command failure", http.StatusServiceUnavailable)
 				return
 			}
@@ -255,4 +259,16 @@ func ensureEOF(decoder *json.Decoder) error {
 		return fmt.Errorf("unexpected trailing JSON")
 	}
 	return err
+}
+
+type retryableError interface {
+	IsRetryable() bool
+}
+
+func isRetryableError(err error) bool {
+	var classified retryableError
+	if errors.As(err, &classified) {
+		return classified.IsRetryable()
+	}
+	return true
 }

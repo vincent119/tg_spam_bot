@@ -32,6 +32,13 @@ func (f commandProcessorFunc) Handle(ctx context.Context, command commanddomain.
 	return f(ctx, command)
 }
 
+type commandError struct {
+	retryable bool
+}
+
+func (e commandError) Error() string     { return "command failed" }
+func (e commandError) IsRetryable() bool { return e.retryable }
+
 func TestWebhook(t *testing.T) {
 	t.Parallel()
 	called := false
@@ -167,6 +174,50 @@ func TestWebhookRoutesCommandBeforeDetection(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusNoContent || commands != 1 || messages != 0 {
 		t.Fatalf("status=%d commands=%d messages=%d", res.Code, commands, messages)
+	}
+}
+
+func TestWebhookCommandFailureStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		err       error
+		wantState int
+	}{
+		{name: "不可重試錯誤回成功避免 Telegram 重送", err: commandError{retryable: false}, wantState: http.StatusNoContent},
+		{name: "可重試錯誤回失敗保留 Telegram 重送", err: commandError{retryable: true}, wantState: http.StatusServiceUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, err := NewWebhook(
+				"secret",
+				2048,
+				processorFunc(func(context.Context, domain.Message) (detectionapp.ProcessResult, error) {
+					t.Fatal("管理指令失敗不應落入垃圾訊息偵測")
+					return detectionapp.ProcessResult{}, nil
+				}),
+				WithAllowedChatIDs([]int64{-1001}),
+				WithCommandProcessor(commandProcessorFunc(func(context.Context, commanddomain.Command) error {
+					return tt.err
+				}), "liyu_spam_bot"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := `{"update_id":12,"message":{"message_id":2,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":4},"text":"/del","entities":[{"type":"bot_command","offset":0,"length":4}],"reply_to_message":{"message_id":1,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":5},"text":"spam"}}}`
+			req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+			req.Header.Set(secretHeader, "secret")
+			res := httptest.NewRecorder()
+
+			h.ServeHTTP(res, req)
+
+			if res.Code != tt.wantState {
+				t.Fatalf("status = %d, want %d", res.Code, tt.wantState)
+			}
+		})
 	}
 }
 
