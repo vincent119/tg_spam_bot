@@ -1,4 +1,4 @@
-version: "2026-07-17.1"
+version: "2026-07-27.1"
 categories:
   - id: counterfeit
     name: 偽鈔交易
@@ -29,6 +29,16 @@ categories:
     enabled: true
     terms: [免費領取, 高薪兼職, 長期穩定供應, 包養, 廣告, 群組投放, 誠招代理, 代理加入, guaranteed profit, earn money fast]
     aliases: [免费领取, 高薪兼职, 长期稳定供应, 包养, 广告, 群组投放, 诚招代理]
+    require_any: []
+  - id: spam_campaign_promo
+    name: 活動型廣告文案
+    severity: normal
+    action: progressive
+    threshold: 60
+    weight: 70
+    enabled: true
+    terms: [招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈, 免费看片-永不收费, 抖音代刷项目｜日结高效，不限量不拖欠, 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步, Telegram Project Promotion｜Targeted Groups｜Transparent Results, 曼谷小管家/莞式会所/高端外围/可上门, 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易]
+    aliases: []
     require_any: []
   - id: douyin_gift_fraud
     name: 抖音代刷禮物
