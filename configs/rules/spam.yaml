@@ -1,4 +1,4 @@
-version: "2026-07-27.2"
+version: "2026-07-28.1"
 categories:
   - id: counterfeit
     name: 偽鈔交易
@@ -20,6 +20,16 @@ categories:
     terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底, 轉U, 交易所]
     aliases: [流水奖励, 人头费, 負盈利, 分红, 转U]
     require_any: [telegram_mention, telegram_invite, profit_claim]
+  - id: gambling_account_rental
+    name: 博弈平台帳號出租
+    severity: high
+    action: progressive
+    threshold: 80
+    weight: 40
+    enabled: true
+    terms: [皇冠體育, 私網, 超管帳號出租, 穩定流暢]
+    aliases: [皇冠体育, 私网, 超管账号出租, 超管账号, 稳定流畅, 登3到超管, 无套路]
+    require_any: []
   - id: generic_ad
     name: 一般廣告
     severity: normal
