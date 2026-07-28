@@ -457,7 +457,7 @@ log:
   file: app.log
 ```
 
-檔案日誌輪轉由 `log.rotate` 控制，只有 `outputs` 包含 `file` 且 `rotate.enabled=true` 時才生效。啟用後，實際檔名會以日期作為前綴；例如 `file: app.log` 會寫入 `2026-07-27.app.log`，跨日後的下一筆日誌會切到 `2026-07-28.app.log`：
+檔案日誌輪轉由 `log.rotate` 控制，只有 `outputs` 包含 `file` 且 `rotate.enabled=true` 時才生效。啟用後，active log 維持 `app.log`；跨日後的下一筆日誌會先把前一天的 `app.log` 封存為 `2026-07-27.app.log`，再繼續寫新的 `app.log`：
 
 ```yaml
 log:

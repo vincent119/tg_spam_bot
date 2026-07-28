@@ -53,7 +53,7 @@ func TestBuildRotatingCoreWritesFile(t *testing.T) {
 	logger.Info("rotate test", zap.String("component", "logger"))
 	_ = logger.Sync()
 
-	content, err := os.ReadFile(logFilePath(dir, "app.log", logDate(time.Now())))
+	content, err := os.ReadFile(filepath.Join(dir, "app.log"))
 	if err != nil {
 		t.Fatalf("讀取 rotate log 失敗：%v", err)
 	}
@@ -135,8 +135,8 @@ func TestDailyRotatingLogWriterEffectiveValues(t *testing.T) {
 	if writer.logger.MaxSize != 100 || writer.logger.MaxBackups != 0 || writer.logger.MaxAge != 0 || !writer.logger.Compress {
 		t.Fatalf("writer 設定未套用有效值：%+v", writer.logger)
 	}
-	if writer.logger.Filename != filepath.Join(dir, "2026-07-27.app.log") {
-		t.Fatalf("writer 檔名未套用日期前綴：%s", writer.logger.Filename)
+	if writer.logger.Filename != filepath.Join(dir, "app.log") {
+		t.Fatalf("writer active 檔名應維持 app.log：%s", writer.logger.Filename)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestDailyRotatingLogWriterSwitchesConfiguredFileByDate(t *testing.T) {
 	}
 
 	assertFileContains(t, filepath.Join(dir, "2026-07-27.app.log"), "before midnight")
-	assertFileContains(t, filepath.Join(dir, "2026-07-28.app.log"), "after midnight")
+	assertFileContains(t, filepath.Join(dir, "app.log"), "after midnight")
 }
 
 func TestDailyRotatingLogWriterMigratesLegacyActiveFile(t *testing.T) {
@@ -204,11 +204,8 @@ func TestDailyRotatingLogWriterMigratesLegacyActiveFile(t *testing.T) {
 		t.Fatalf("關閉 writer 失敗：%v", err)
 	}
 
-	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
-		t.Fatalf("legacy active log 應被搬移，err=%v", err)
-	}
 	assertFileContains(t, filepath.Join(dir, "2026-07-27.app.log"), "legacy yesterday")
-	assertFileContains(t, filepath.Join(dir, "2026-07-28.app.log"), "today")
+	assertFileContains(t, filepath.Join(dir, "app.log"), "today")
 }
 
 func TestDailyRotatingLogWriterSwitchesDefaultFileByDate(t *testing.T) {
@@ -238,7 +235,7 @@ func TestDailyRotatingLogWriterSwitchesDefaultFileByDate(t *testing.T) {
 	}
 
 	assertFileContains(t, filepath.Join(dir, "2026-07-27.log"), "first day")
-	assertFileContains(t, filepath.Join(dir, "2026-07-28.log"), "second day")
+	assertFileContains(t, filepath.Join(dir, "app.log"), "second day")
 }
 
 func TestPruneDailyLogFilesRemovesFilesByMaxAge(t *testing.T) {

@@ -170,17 +170,17 @@ func newDailyRotatingLogWriter(cfg config.LogConfig, now func() time.Time) (*dai
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 	rotate := (config.Config{Log: cfg}).EffectiveLogRotate()
-	if err := migrateLegacyActiveLogFile(logDir, cfg.File); err != nil {
+	date := logDate(now())
+	if err := migrateLegacyActiveLogFile(logDir, cfg.File, date); err != nil {
 		return nil, err
 	}
-	date := logDate(now())
 	writer := &dailyRotatingLogWriter{
 		logDir:         logDir,
 		configuredFile: cfg.File,
 		rotate:         rotate,
 		now:            now,
 		currentDate:    date,
-		logger:         lumberjackLogWriter(logFilePath(logDir, cfg.File, date), rotate),
+		logger:         lumberjackLogWriter(activeLogFilePath(logDir, cfg.File), rotate),
 	}
 	if err := pruneDailyLogFiles(logDir, cfg.File, rotate, now()); err != nil {
 		return nil, err
@@ -229,7 +229,10 @@ func (w *dailyRotatingLogWriter) switchDailyLogFile(date string) error {
 	if err := w.logger.Close(); err != nil {
 		return fmt.Errorf("close dated log file: %w", err)
 	}
-	w.logger = lumberjackLogWriter(logFilePath(w.logDir, w.configuredFile, date), w.rotate)
+	if err := archiveActiveLogFile(w.logDir, w.configuredFile, w.currentDate); err != nil {
+		return err
+	}
+	w.logger = lumberjackLogWriter(activeLogFilePath(w.logDir, w.configuredFile), w.rotate)
 	w.currentDate = date
 	return nil
 }
@@ -250,11 +253,16 @@ func logFilePath(logDir, configuredFile, date string) string {
 	return filepath.Join(logDir, logFileName(configuredFile, date))
 }
 
-func migrateLegacyActiveLogFile(logDir, configuredFile string) error {
-	if configuredFile == "" {
-		return nil
+func activeLogFilePath(logDir, configuredFile string) string {
+	file := configuredFile
+	if file == "" {
+		file = "app.log"
 	}
-	legacyPath := filepath.Join(logDir, configuredFile)
+	return filepath.Join(logDir, file)
+}
+
+func migrateLegacyActiveLogFile(logDir, configuredFile, currentDate string) error {
+	legacyPath := activeLogFilePath(logDir, configuredFile)
 	info, err := os.Stat(legacyPath)
 	if os.IsNotExist(err) {
 		return nil
@@ -265,8 +273,32 @@ func migrateLegacyActiveLogFile(logDir, configuredFile string) error {
 	if !info.Mode().IsRegular() {
 		return nil
 	}
-	targetPath := logFilePath(logDir, configuredFile, logDate(info.ModTime()))
-	if samePath(legacyPath, targetPath) {
+	archiveDate := logDate(info.ModTime())
+	if archiveDate == currentDate {
+		return nil
+	}
+	return archiveActiveLogFileWithInfo(logDir, configuredFile, archiveDate, info)
+}
+
+func archiveActiveLogFile(logDir, configuredFile, archiveDate string) error {
+	activePath := activeLogFilePath(logDir, configuredFile)
+	info, err := os.Stat(activePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat active log file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	return archiveActiveLogFileWithInfo(logDir, configuredFile, archiveDate, info)
+}
+
+func archiveActiveLogFileWithInfo(logDir, configuredFile, archiveDate string, info os.FileInfo) error {
+	activePath := activeLogFilePath(logDir, configuredFile)
+	targetPath := logFilePath(logDir, configuredFile, archiveDate)
+	if samePath(activePath, targetPath) {
 		return nil
 	}
 	if _, err := os.Stat(targetPath); err == nil {
@@ -274,8 +306,8 @@ func migrateLegacyActiveLogFile(logDir, configuredFile string) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("stat dated legacy log file: %w", err)
 	}
-	if err := os.Rename(legacyPath, targetPath); err != nil {
-		return fmt.Errorf("migrate legacy active log file: %w", err)
+	if err := os.Rename(activePath, targetPath); err != nil {
+		return fmt.Errorf("archive active log file: %w", err)
 	}
 	return nil
 }
