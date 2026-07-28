@@ -170,6 +170,9 @@ func newDailyRotatingLogWriter(cfg config.LogConfig, now func() time.Time) (*dai
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 	rotate := (config.Config{Log: cfg}).EffectiveLogRotate()
+	if err := migrateLegacyActiveLogFile(logDir, cfg.File); err != nil {
+		return nil, err
+	}
 	date := logDate(now())
 	writer := &dailyRotatingLogWriter{
 		logDir:         logDir,
@@ -245,6 +248,52 @@ func logFileName(configuredFile, date string) string {
 
 func logFilePath(logDir, configuredFile, date string) string {
 	return filepath.Join(logDir, logFileName(configuredFile, date))
+}
+
+func migrateLegacyActiveLogFile(logDir, configuredFile string) error {
+	if configuredFile == "" {
+		return nil
+	}
+	legacyPath := filepath.Join(logDir, configuredFile)
+	info, err := os.Stat(legacyPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat legacy active log file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	targetPath := logFilePath(logDir, configuredFile, logDate(info.ModTime()))
+	if samePath(legacyPath, targetPath) {
+		return nil
+	}
+	if _, err := os.Stat(targetPath); err == nil {
+		targetPath = collidingDailyLogFilePath(logDir, configuredFile, info.ModTime())
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat dated legacy log file: %w", err)
+	}
+	if err := os.Rename(legacyPath, targetPath); err != nil {
+		return fmt.Errorf("migrate legacy active log file: %w", err)
+	}
+	return nil
+}
+
+func collidingDailyLogFilePath(logDir, configuredFile string, t time.Time) string {
+	dir, base := filepath.Split(logFileName(configuredFile, logDate(t)))
+	ext := filepath.Ext(base)
+	prefix := strings.TrimSuffix(base, ext)
+	return filepath.Join(logDir, dir, prefix+"-"+t.Format("15-04-05.000")+ext)
+}
+
+func samePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA == nil && errB == nil {
+		return absA == absB
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 type dailyLogFile struct {

@@ -257,3 +257,47 @@ semantic_memory:
 		t.Fatalf("未正確載入 Bedrock credential：%+v", cfg.SemanticMemory.Bedrock)
 	}
 }
+
+func TestLoadLogEnvironmentOverrides(t *testing.T) {
+	t.Setenv("DB_USER", "tg_spam")
+	t.Setenv("DB_PASSWORD", "secret")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
+	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "webhook-secret")
+	t.Setenv("TELEGRAM_ALLOWED_CHAT_IDS", "-1001234567890")
+	t.Setenv("CONTENT_HASH_KEY", "01234567890123456789012345678901")
+	t.Setenv("LOG_OUTPUTS", "console,file")
+	t.Setenv("LOG_PATH", "/app/logs")
+	t.Setenv("LOG_FILE", "app.log")
+	t.Setenv("LOG_ROTATE_ENABLED", "true")
+	t.Setenv("LOG_ROTATE_MAX_BACKUPS", "14")
+	t.Setenv("LOG_ROTATE_MAX_AGE_DAYS", "30")
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte(`
+app:
+  mode: observe
+db:
+  name: tg_spam
+redis:
+  addr: redis:6379
+rules:
+  dir: configs/rules
+`)
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		t.Fatalf("建立測試設定檔失敗：%v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Log.Outputs) != 2 || cfg.Log.Outputs[0] != "console" || cfg.Log.Outputs[1] != "file" {
+		t.Fatalf("LOG_OUTPUTS 未正確載入：%+v", cfg.Log.Outputs)
+	}
+	if cfg.Log.Path != "/app/logs" || cfg.Log.File != "app.log" {
+		t.Fatalf("LOG_PATH/LOG_FILE 未正確載入：%+v", cfg.Log)
+	}
+	if !cfg.Log.Rotate.Enabled || cfg.Log.Rotate.MaxBackups != 14 || cfg.Log.Rotate.MaxAgeDays != 30 {
+		t.Fatalf("LOG_ROTATE_* 未正確載入：%+v", cfg.Log.Rotate)
+	}
+}

@@ -173,6 +173,44 @@ func TestDailyRotatingLogWriterSwitchesConfiguredFileByDate(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "2026-07-28.app.log"), "after midnight")
 }
 
+func TestDailyRotatingLogWriterMigratesLegacyActiveFile(t *testing.T) {
+	dir := t.TempDir()
+	legacyPath := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(legacyPath, []byte("legacy yesterday\n"), 0o600); err != nil {
+		t.Fatalf("建立 legacy active log 失敗：%v", err)
+	}
+	legacyTime := time.Date(2026, 7, 27, 23, 59, 0, 0, time.Local)
+	if err := os.Chtimes(legacyPath, legacyTime, legacyTime); err != nil {
+		t.Fatalf("設定 legacy active log 時間失敗：%v", err)
+	}
+
+	writer, err := newDailyRotatingLogWriter(config.LogConfig{
+		Path: dir,
+		File: "app.log",
+		Rotate: config.LogRotateConfig{
+			Enabled:   true,
+			MaxSizeMB: 1,
+		},
+	}, func() time.Time {
+		return time.Date(2026, 7, 28, 10, 0, 0, 0, time.Local)
+	})
+	if err != nil {
+		t.Fatalf("newDailyRotatingLogWriter() error = %v", err)
+	}
+	if _, err := writer.Write([]byte("today\n")); err != nil {
+		t.Fatalf("寫入今日日誌失敗：%v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("關閉 writer 失敗：%v", err)
+	}
+
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy active log 應被搬移，err=%v", err)
+	}
+	assertFileContains(t, filepath.Join(dir, "2026-07-27.app.log"), "legacy yesterday")
+	assertFileContains(t, filepath.Join(dir, "2026-07-28.app.log"), "today")
+}
+
 func TestDailyRotatingLogWriterSwitchesDefaultFileByDate(t *testing.T) {
 	dir := t.TempDir()
 	current := time.Date(2026, 7, 27, 23, 59, 0, 0, time.Local)
