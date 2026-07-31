@@ -1,4 +1,4 @@
-version: "2026-07-28.1"
+version: "2026-07-31.1"
 categories:
   - id: counterfeit
     name: 偽鈔交易
@@ -58,7 +58,7 @@ categories:
     weight: 70
     enabled: true
     terms: [招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈, 免费看片-永不收费, 抖音代刷项目｜日结高效，不限量不拖欠, 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步, Telegram Project Promotion｜Targeted Groups｜Transparent Results, 曼谷小管家/莞式会所/高端外围/可上门, 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易]
-    aliases: []
+    aliases: [抖音全新玩法上线, 有抖音即可参与, 猫哥外围, 靠谱外围 精品优选]
     require_any: []
   - id: douyin_gift_fraud
     name: 抖音代刷禮物
@@ -68,5 +68,5 @@ categories:
     weight: 70
     enabled: true
     terms: [抖音代刷禮物, 代刷抖音禮物, 抖音刷禮物, 抖音禮物項目, 無需經驗, 有號就能做, 趁早上車]
-    aliases: [抖音代刷礼物, 代刷抖音礼物, 抖音刷礼物, 抖音礼物项目, 无需经验, 有号就能做, 趁早上车, 官方主推方向, 無門檻可做, 无门槛可做]
-    require_any: [telegram_mention, telegram_invite, transaction_signal]
+    aliases: [抖音代刷礼物, 代刷抖音礼物, 抖音刷礼物, 抖音礼物项目, 无需经验, 有号就能做, 趁早上车, 官方主推方向, 無門檻可做, 无门槛可做, 抖音全新玩法上线, 无违规账号即可, 有抖音即可参与, 代刷礼物来人多, 收益日结]
+    require_any: [telegram_mention, telegram_invite, transaction_signal, profit_claim]
