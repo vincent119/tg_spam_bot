@@ -1,4 +1,4 @@
-version: "2026-07-31.1"
+version: "2026-07-31.3"
 categories:
   - id: counterfeit
     name: 偽鈔交易
@@ -50,6 +50,16 @@ categories:
     terms: [七氟烷, 美卡, 批發, 面交, 水果機, 全系機, 國行正品, 帶票無憂]
     aliases: [批发, 水果机, 全系机, 国行正品, 带票无忧, 接批发, 接面交]
     require_any: []
+  - id: social_account_trading
+    name: 社群帳號交易
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [數據號, 綠標主體, 帶超管, 備份包, 國內私人號, 地推實名, 實名號, 國內白號]
+    aliases: [数据号, 绿标主体, 带超管, 备份包, 国内私人号, 地推实名, 实名号, 国内白号]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]
   - id: spam_campaign_promo
     name: 活動型廣告文案
     severity: normal
@@ -57,8 +67,8 @@ categories:
     threshold: 60
     weight: 70
     enabled: true
-    terms: [招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈, 免费看片-永不收费, 抖音代刷项目｜日结高效，不限量不拖欠, 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步, Telegram Project Promotion｜Targeted Groups｜Transparent Results, 曼谷小管家/莞式会所/高端外围/可上门, 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易]
-    aliases: [抖音全新玩法上线, 有抖音即可参与, 猫哥外围, 靠谱外围 精品优选]
+    terms: [招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈, 免费看片-永不收费, 抖音代刷项目｜日结高效，不限量不拖欠, 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步, Telegram Project Promotion｜Targeted Groups｜Transparent Results, 曼谷小管家/莞式会所/高端外围/可上门, 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易, 商K真空場, 沙發秀]
+    aliases: [抖音全新玩法上线, 有抖音即可参与, 猫哥外围, 靠谱外围 精品优选, 商K真空场, 沙发秀]
     require_any: []
   - id: douyin_gift_fraud
     name: 抖音代刷禮物

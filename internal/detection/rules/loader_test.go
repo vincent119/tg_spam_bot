@@ -57,6 +57,16 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			message:    domain.Message{Text: "@maoge", ReferenceText: "猫哥外围 · 全国商K · 包养\n多年运营 扎根成都\n靠谱外围 精品优选"},
 			categoryID: "spam_campaign_promo",
 		},
+		{
+			name:       "引用帳號交易廣告並附聯絡帳號",
+			message:    domain.Message{Text: "b @cx68688", ReferenceText: "出 微信 美短 A16 数据号 飞书\n企业微信 绿标主体 带超管\n各种备份包 国内私人号\n抖音 地推实名 包评论直播\n快手 实名号 国内白号"},
+			categoryID: "social_account_trading",
+		},
+		{
+			name:       "商務娛樂成人廣告",
+			message:    domain.Message{Text: "杭州商K真空场｜妹子05 06会玩·节目齐全·沙发秀"},
+			categoryID: "spam_campaign_promo",
+		},
 	}
 
 	for _, tt := range tests {
