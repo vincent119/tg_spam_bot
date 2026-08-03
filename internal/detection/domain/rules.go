@@ -156,7 +156,8 @@ func detectSignals(text string, entities []Entity, allow, deny []string) []strin
 	if strings.Contains(text, "出售") || strings.Contains(text, "出货") || strings.Contains(text, "供應") || strings.Contains(text, "供应") {
 		signals = append(signals, "transaction_signal")
 	}
-	if strings.Contains(text, "日結") || strings.Contains(text, "日结") || strings.Contains(text, "profit") || strings.Contains(text, "盈利") {
+	percentageDividend := strings.Contains(text, "%") && (strings.Contains(text, "分紅") || strings.Contains(text, "分红"))
+	if strings.Contains(text, "日結") || strings.Contains(text, "日结") || strings.Contains(text, "profit") || strings.Contains(text, "盈利") || percentageDividend {
 		signals = append(signals, "profit_claim")
 	}
 	for _, e := range entities {

@@ -53,6 +53,11 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			categoryID: "douyin_gift_fraud",
 		},
 		{
+			name:       "博弈平台百分比分紅招商",
+			message:    domain.Message{Text: "📢【九台招商】直营24小时在线55%分红\n开云 乐鱼 爱游戏\n星空 米兰 乐彩\n免费加盟代理分红，佣金稳出款快"},
+			categoryID: "gambling",
+		},
+		{
 			name:       "引用外圍廣告並附聯絡帳號",
 			message:    domain.Message{Text: "@maoge", ReferenceText: "猫哥外围 · 全国商K · 包养\n多年运营 扎根成都\n靠谱外围 精品优选"},
 			categoryID: "spam_campaign_promo",
@@ -78,5 +83,23 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 				t.Fatalf("Detect() = spam %v category %q score %d matches=%+v signals=%v", got.Spam, got.CategoryID, got.Score, got.Matches, got.Signals)
 			}
 		})
+	}
+}
+
+func TestSpamRulesDoNotTreatOrdinaryDividendAsProfitClaim(t *testing.T) {
+	t.Parallel()
+
+	ruleSet, err := LoadDir(filepath.Join("..", "..", "..", "configs", "rules"))
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	detector, err := domain.NewDetector(ruleSet, domain.NewNormalizer(domain.OpenCCConverter{}, 4096), nil, nil)
+	if err != nil {
+		t.Fatalf("NewDetector() error = %v", err)
+	}
+
+	got := detector.Detect(domain.Message{Text: "公司董事會通過今年分红方案"})
+	if got.Spam {
+		t.Fatalf("Detect() = spam %v category %q score %d matches=%+v signals=%v", got.Spam, got.CategoryID, got.Score, got.Matches, got.Signals)
 	}
 }
