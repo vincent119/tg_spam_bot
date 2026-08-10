@@ -53,6 +53,31 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			categoryID: "douyin_gift_fraud",
 		},
 		{
+			name:       "抖音日結專案招人",
+			message:    domain.Message{Text: "抖音日结项目招人｜日结5K起，量大不限，不拖欠 @qianshen8899"},
+			categoryID: "douyin_gift_fraud",
+		},
+		{
+			name:       "抖音日結專案招募團隊",
+			message:    domain.Message{Text: "抖音日结项目｜招人手、招团队，长期稳定，结算及时 @qianshen8899"},
+			categoryID: "douyin_gift_fraud",
+		},
+		{
+			name:       "抖音全新專案單號參與",
+			message:    domain.Message{Text: "2026抖音全新项目上线｜单号即可参与 @kaixuanyule666"},
+			categoryID: "douyin_gift_fraud",
+		},
+		{
+			name:       "抖音新專案低門檻招攬",
+			message:    domain.Message{Text: "2026抖音新项目｜低门槛高机会｜不要观望 @kaixuanyule666"},
+			categoryID: "douyin_gift_fraud",
+		},
+		{
+			name:       "保養讀書妹成人招攬",
+			message:    domain.Message{Text: "可保养读书妹，找零装逼专用 @jkshibd88"},
+			categoryID: "spam_campaign_promo",
+		},
+		{
 			name:       "博弈平台百分比分紅招商",
 			message:    domain.Message{Text: "📢【九台招商】直营24小时在线55%分红\n开云 乐鱼 爱游戏\n星空 米兰 乐彩\n免费加盟代理分红，佣金稳出款快"},
 			categoryID: "gambling",
