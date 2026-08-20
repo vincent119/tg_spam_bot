@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: social_account_trading
+    name: 社群帳號交易
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [數據號, 綠標主體, 帶超管, 備份包, 國內私人號, 地推實名, 實名號, 國內白號]
+    aliases: [数据号, 绿标主体, 带超管, 备份包, 国内私人号, 地推实名, 实名号, 国内白号]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

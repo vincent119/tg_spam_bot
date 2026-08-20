@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: gambling
+    name: 博弈招募
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底, 轉U, 交易所]
+    aliases: [流水奖励, 人头费, 負盈利, 分红, 转U]
+    require_any: [telegram_mention, telegram_invite, profit_claim]

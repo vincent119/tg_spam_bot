@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: gambling_account_rental
+    name: 博弈平台帳號出租
+    severity: high
+    action: progressive
+    threshold: 80
+    weight: 40
+    enabled: true
+    terms: [皇冠體育, 私網, 超管帳號出租, 穩定流暢]
+    aliases: [皇冠体育, 私网, 超管账号出租, 超管账号, 稳定流畅, 登3到超管, 无套路]
+    require_any: []

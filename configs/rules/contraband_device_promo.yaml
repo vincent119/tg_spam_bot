@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: contraband_device_promo
+    name: 管制品與電子產品批發廣告
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [七氟烷, 美卡, 批發, 面交, 水果機, 全系機, 國行正品, 帶票無憂]
+    aliases: [批发, 水果机, 全系机, 国行正品, 带票无忧, 接批发, 接面交]
+    require_any: []

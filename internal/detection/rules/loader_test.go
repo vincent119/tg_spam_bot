@@ -97,6 +97,21 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			message:    domain.Message{Text: "杭州商K真空场｜妹子05 06会玩·节目齐全·沙发秀"},
 			categoryID: "spam_campaign_promo",
 		},
+		{
+			name:       "迷姦藥物招攬",
+			message:    domain.Message{Text: "💊迷药/昏迷药/失忆药 @ylousb6"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "毒品暗語招攬",
+			message:    domain.Message{Text: "👍上头溜冰 好肉好果 @nsinaaaa"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "下藥調教招攬",
+			message:    domain.Message{Text: "😘催情药/迷玩药/下药调教 @havsvyt1"},
+			categoryID: "illicit_drug_promo",
+		},
 	}
 
 	for _, tt := range tests {
@@ -108,6 +123,24 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 				t.Fatalf("Detect() = spam %v category %q score %d matches=%+v signals=%v", got.Spam, got.CategoryID, got.Score, got.Matches, got.Signals)
 			}
 		})
+	}
+}
+
+func TestSpamRulesDoNotBanDrugTermWithoutContactOrTransactionSignal(t *testing.T) {
+	t.Parallel()
+
+	ruleSet, err := LoadDir(filepath.Join("..", "..", "..", "configs", "rules"))
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	detector, err := domain.NewDetector(ruleSet, domain.NewNormalizer(domain.OpenCCConverter{}, 4096), nil, nil)
+	if err != nil {
+		t.Fatalf("NewDetector() error = %v", err)
+	}
+
+	got := detector.Detect(domain.Message{Text: "新聞報導提醒民眾防範迷藥犯罪"})
+	if got.Spam {
+		t.Fatalf("Detect() = spam %v category %q score %d matches=%+v signals=%v", got.Spam, got.CategoryID, got.Score, got.Matches, got.Signals)
 	}
 }
 

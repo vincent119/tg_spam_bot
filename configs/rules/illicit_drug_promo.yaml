@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: illicit_drug_promo
+    name: 迷姦藥物與毒品交易招攬
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    terms: [迷藥, 昏迷藥, 失憶藥, 催情藥, 迷玩藥, 下藥調教, 上頭溜冰]
+    aliases: [迷药, 昏迷药, 失忆药, 催情药, 迷玩药, 下药调教, 上头溜冰, 好肉, 好果]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]
