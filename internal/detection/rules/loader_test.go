@@ -1,11 +1,60 @@
 package rules
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
+
+func TestLoadDirAllowsIndependentlyVersionedRuleFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	files := map[string]string{
+		"one.yaml": `version: "1.0"
+categories:
+  - id: one
+    severity: normal
+    action: progressive
+    threshold: 40
+    weight: 40
+    enabled: true
+    terms: [one]
+    aliases: []
+    require_any: []
+`,
+		"two.yaml": `version: "1.1"
+categories:
+  - id: two
+    severity: normal
+    action: progressive
+    threshold: 40
+    weight: 40
+    enabled: true
+    terms: [two]
+    aliases: []
+    require_any: []
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", name, err)
+		}
+	}
+
+	ruleSet, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	if len(ruleSet.Categories) != 2 {
+		t.Fatalf("len(Categories) = %d, want 2", len(ruleSet.Categories))
+	}
+	if len(ruleSet.Version) != 64 {
+		t.Fatalf("snapshot version length = %d, want 64", len(ruleSet.Version))
+	}
+}
 
 func TestSpamRulesDetectGamblingAccountRental(t *testing.T) {
 	t.Parallel()
@@ -103,6 +152,16 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			categoryID: "illicit_drug_promo",
 		},
 		{
+			name:       "醚藥招攬",
+			message:    domain.Message{Text: "💊醚药/昏迷药/失忆药 @ylousb6"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "肉搞價格招攬",
+			message:    domain.Message{Text: "✌️ 给肉搞起来可以 1800/g @nsinaaaa"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
 			name:       "毒品暗語招攬",
 			message:    domain.Message{Text: "👍上头溜冰 好肉好果 @nsinaaaa"},
 			categoryID: "illicit_drug_promo",
@@ -111,6 +170,16 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			name:       "下藥調教招攬",
 			message:    domain.Message{Text: "😘催情药/迷玩药/下药调教 @havsvyt1"},
 			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "催箐藥招攬",
+			message:    domain.Message{Text: "😘催箐药/迷玩药/下药调教 @havsvyt1"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "幣圈投資招攬",
+			message:    domain.Message{Text: "🚀 币圈每日复盘 · 波段机会拆解 · 抱团交流不迷路 @kxyz66"},
+			categoryID: "crypto_investment_promo",
 		},
 	}
 

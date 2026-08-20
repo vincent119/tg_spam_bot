@@ -1,0 +1,12 @@
+version: "2026-08-20.1"
+categories:
+  - id: crypto_investment_promo
+    name: 幣圈投資招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [幣圈每日復盤, 波段機會拆解, 抱團交流不迷路]
+    aliases: [币圈每日复盘, 波段机会拆解, 抱团交流不迷路]
+    require_any: [telegram_mention, telegram_invite]
