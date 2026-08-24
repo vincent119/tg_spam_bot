@@ -14,3 +14,4 @@ data
 coverage.out
 configs/config.yaml
 configs/auto_replies.yaml
+.DS_Store

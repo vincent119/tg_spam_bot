@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: traffic_promo
+    name: 引流推廣招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [TG全行業引流推廣, 引流推廣, 全行業引流]
+    aliases: [tg全行业引流推广, 引流推广, 全行业引流]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

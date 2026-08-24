@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: stock_lead_promo
+    name: 股票引流與電銷資料招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [股民數據直出, 手撥股轉, AI外呼, 股票數據, 股民數據]
+    aliases: [股民数据直出, 手拨股转, ai外呼, 股票数据, 股民数据, 电销数据]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

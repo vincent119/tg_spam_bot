@@ -181,6 +181,41 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			message:    domain.Message{Text: "🚀 币圈每日复盘 · 波段机会拆解 · 抱团交流不迷路 @kxyz66"},
 			categoryID: "crypto_investment_promo",
 		},
+		{
+			name:       "性功能藥物招攬",
+			message:    domain.Message{Text: "😊伟哥/增久/延时 @yaolao6"},
+			categoryID: "sexual_enhancement_promo",
+		},
+		{
+			name:       "股票電銷資料招攬",
+			message:    domain.Message{Text: "股民数据直出｜手拨股转百1起✅ 分成百5，AI外呼万30＋｜@Oyuge007"},
+			categoryID: "stock_lead_promo",
+		},
+		{
+			name:       "引流推廣招攬",
+			message:    domain.Message{Text: "✅TG全行业引流推广 @B886S精选优质群全覆盖，高效全天投放"},
+			categoryID: "traffic_promo",
+		},
+		{
+			name:       "電子煙煙油招攬",
+			message:    domain.Message{Text: "🎁上头电子烟 原料 成品油 依托 @woshifeijingxi6"},
+			categoryID: "e_cigarette_promo",
+		},
+		{
+			name:       "抖幣快幣代刷招攬",
+			message:    domain.Message{Text: "💌南海集团抖币快币代刷 @nnnh1133"},
+			categoryID: "coin_brushing_promo",
+		},
+		{
+			name:       "地推掃碼回流資料招攬",
+			message:    domain.Message{Text: "全类型扫码Q 首次回流扫码 私人扫码 地推扫码 电脑pc扫码 @hysc99"},
+			categoryID: "ground_promotion_data_promo",
+		},
+		{
+			name:       "地推招人暗語",
+			message:    domain.Message{Text: "厕所盖章手写招人（日入一千0本金）"},
+			categoryID: "ground_promotion_data_promo",
+		},
 	}
 
 	for _, tt := range tests {

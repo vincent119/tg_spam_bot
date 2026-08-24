@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: sexual_enhancement_promo
+    name: 催情與性功能藥物招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [催情, 偉哥, 增久, 延時]
+    aliases: [催情, 伟哥, 增久, 延时, 壯陽, 壮阳]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

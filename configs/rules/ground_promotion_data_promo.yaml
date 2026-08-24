@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: ground_promotion_data_promo
+    name: 地推掃碼與回流資料招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [地推掃碼, 首次回流掃碼, 私人掃碼, 電腦PC掃碼, 廁所蓋章手寫招人, 日入一千零本金]
+    aliases: [地推扫码, 首次回流扫码, 私人扫码, 电脑pc扫码, 厕所盖章手写招人, 日入一千0本金]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

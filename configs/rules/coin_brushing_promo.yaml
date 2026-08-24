@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: coin_brushing_promo
+    name: 抖幣快幣代刷招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [抖幣代刷, 快幣代刷, 抖幣, 快幣]
+    aliases: [抖币代刷, 快币代刷, 抖币, 快币]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]
