@@ -7,6 +7,26 @@ categories:
     threshold: 60
     weight: 70
     enabled: true
-    terms: [招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈, 免费看片-永不收费, 抖音代刷项目｜日结高效，不限量不拖欠, 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步, Telegram Project Promotion｜Targeted Groups｜Transparent Results, 曼谷小管家/莞式会所/高端外围/可上门, 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易, 商K真空場, 沙發秀]
-    aliases: [抖音全新玩法上线, 有抖音即可参与, 抖音日结项目, 抖音全新项目上线, 抖音新项目, 猫哥外围, 靠谱外围 精品优选, 商K真空场, 沙发秀, 可保养读书妹, 找零装逼专用]
+    terms:
+      - 招聘远程 PHP｜框架维护、Bug 修复、系统优化、ThinkPHP 技术栈
+      - 免费看片-永不收费
+      - 抖音代刷项目｜日结高效，不限量不拖欠
+      - 供需对接大群｜万人不禁言/一手资源实时对接/赚钱快一步
+      - Telegram Project Promotion｜Targeted Groups｜Transparent Results
+      - 曼谷小管家/莞式会所/高端外围/可上门
+      - 妲己包养平台 - 真实资源 - 私密可靠 - 可担保交易
+      - 商K真空場
+      - 沙發秀
+    aliases:
+      - 抖音全新玩法上线
+      - 有抖音即可参与
+      - 抖音日结项目
+      - 抖音全新项目上线
+      - 抖音新项目
+      - 猫哥外围
+      - 靠谱外围 精品优选
+      - 商K真空场
+      - 沙发秀
+      - 可保养读书妹
+      - 找零装逼专用
     require_any: []

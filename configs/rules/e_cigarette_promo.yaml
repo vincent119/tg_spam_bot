@@ -7,6 +7,17 @@ categories:
     threshold: 60
     weight: 40
     enabled: true
-    terms: [上頭電子煙, 電子煙原料, 煙油, 成品油, 依托]
-    aliases: [上头电子烟, 电子烟原料, 烟油, 成品油, 电子烟, 依托]
+    terms:
+      - 上頭電子煙
+      - 電子煙原料
+      - 煙油
+      - 成品油
+      - 依托
+    aliases:
+      - 上头电子烟
+      - 电子烟原料
+      - 烟油
+      - 成品油
+      - 电子烟
+      - 依托
     require_any: [telegram_mention, telegram_invite, transaction_signal]
