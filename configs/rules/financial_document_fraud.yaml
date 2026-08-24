@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: financial_document_fraud
+    name: 金融與證件詐騙招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [信用卡提現, 無抵押貸款, 代開發票, 售腎, 地下錢莊]
+    aliases: [信用卡提现, 无抵押贷款, 代开发票, 售肾, 地下钱庄, 小额贷款]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

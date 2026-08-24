@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: controlled_medication_promo
+    name: 處方與管制藥物招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [代血漿, 普萘洛爾, 呋塞米, 西布曲明, 胰島素樣生長因子, 地西泮, 尼可剎米, 地奈德, 莫達非尼, 氯噻嗪, 苯巴比妥, 潑尼松, 麻黃草, 地塞米松, 三唑侖, 咖啡因]
+    aliases: [代血浆, 普萘洛尔, 呋塞米, 西布曲明, 胰岛素样生长因子, 地西泮, 尼可刹米, 地奈德, 莫达非尼, 氯噻嗪, 苯巴比妥, 泼尼松, 麻黄草, 地塞米松, 三唑仑, 咖啡因, adrenaline, benzodiazepines]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

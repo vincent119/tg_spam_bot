@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: weapon_trade_promo
+    name: 武器與管制器材交易
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    terms: [出售氣槍, 出售手槍, 出售仿真槍, 弓弩專賣, 弓弩批發, 麻醉箭, 出售軍刀, 出售軍刺]
+    aliases: [出售气枪, 出售手枪, 出售仿真枪, 弓弩专卖, 弓弩批发, 麻醉箭, 出售军刀, 出售军刺, 气枪专卖, 手枪出售]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]

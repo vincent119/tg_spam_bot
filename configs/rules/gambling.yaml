@@ -8,5 +8,5 @@ categories:
     weight: 70
     enabled: true
     terms: [博彩代理, 流水獎勵, 人頭費, 世足, 保底, 轉U, 交易所]
-    aliases: [流水奖励, 人头费, 負盈利, 分红, 转U]
+    aliases: [流水奖励, 人头费, 負盈利, 分红, 转U, 足球投注, 六合彩]
     require_any: [telegram_mention, telegram_invite, profit_claim]

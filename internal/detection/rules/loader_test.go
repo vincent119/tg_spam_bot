@@ -216,6 +216,41 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			message:    domain.Message{Text: "厕所盖章手写招人（日入一千0本金）"},
 			categoryID: "ground_promotion_data_promo",
 		},
+		{
+			name:       "成人服務招攬",
+			message:    domain.Message{Text: "外围上门包夜 @seller"},
+			categoryID: "adult_service_promo",
+		},
+		{
+			name:       "武器交易招攬",
+			message:    domain.Message{Text: "出售气枪，货到付款 @seller"},
+			categoryID: "weapon_trade_promo",
+		},
+		{
+			name:       "金融證件詐騙招攬",
+			message:    domain.Message{Text: "无抵押贷款，代开发票 @seller"},
+			categoryID: "financial_document_fraud",
+		},
+		{
+			name:       "博弈投注招攬",
+			message:    domain.Message{Text: "足球投注，免费加盟代理 @seller"},
+			categoryID: "gambling",
+		},
+		{
+			name:       "毒品交易招攬",
+			message:    domain.Message{Text: "海luo因、k粉、ketamine 可出 @seller"},
+			categoryID: "illicit_drug_promo",
+		},
+		{
+			name:       "處方藥物招攬",
+			message:    domain.Message{Text: "地西泮、莫达非尼现货 @seller"},
+			categoryID: "controlled_medication_promo",
+		},
+		{
+			name:       "禁藥荷爾蒙招攬",
+			message:    domain.Message{Text: "testosterone 和 erythropoietin 可供货 @seller"},
+			categoryID: "performance_enhancing_drug_promo",
+		},
 	}
 
 	for _, tt := range tests {

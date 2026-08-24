@@ -20,6 +20,25 @@ categories:
       - 給肉搞
       - 依托咪酯
       - 依托米酯
+      - 安眠酮
+      - 新型毒品
+      - 杜冷丁
+      - 海洛因
+      - 鴉片
+      - 阿芙蓉
+      - 可卡因
+      - 美沙酮
+      - 麻古
+      - K粉
+      - 氯胺酮
+      - 冰毒
+      - 苯丙胺
+      - 大麻
+      - 甲基安非他命
+      - 安非他命
+      - 嗎啡
+      - 愛他死
+      - 士的寧
     aliases:
       - 迷药
       - 醚药
@@ -36,6 +55,35 @@ categories:
       - 好果
       - 依托咪酯
       - 依托米酯
+      - 安眠酮
+      - 新型毒品
+      - 杜冷丁
+      - mdma
+      - 海洛因
+      - 海luo因
+      - heroin
+      - diamorphine
+      - diacetylmorphine
+      - 鸦片
+      - 阿芙蓉
+      - 可卡因
+      - cocain
+      - cocaine
+      - 美沙酮
+      - 麻古
+      - k粉
+      - 凯他敏
+      - ketamine
+      - 氯胺酮
+      - 冰毒
+      - 苯丙胺
+      - cannabis
+      - 大麻
+      - 爱他死
+      - 甲基安非他明
+      - 安非他命
+      - 吗啡
+      - strychnine
     require_any:
       - telegram_mention
       - telegram_invite

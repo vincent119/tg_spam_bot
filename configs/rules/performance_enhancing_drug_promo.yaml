@@ -1,0 +1,12 @@
+version: "1.0"
+categories:
+  - id: performance_enhancing_drug_promo
+    name: 禁藥與荷爾蒙招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [睪酮, 促紅細胞生成素, 甲睪酮, 促性腺激素, 雄烯二醇, 他莫昔芬]
+    aliases: [testosterone, erythropoietin, tamoxifen, androst]
+    require_any: [telegram_mention, telegram_invite, transaction_signal]
