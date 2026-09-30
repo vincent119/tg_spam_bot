@@ -1,4 +1,4 @@
-version: "2026-07-20.1"
+version: "2026-09-30.1"
 rules:
   - id: download_page
     enabled: true
@@ -9,11 +9,28 @@ rules:
       - 下載 app
       - app 下载
       - app 安装
-    reply: "下載頁在：https://example.com/download"
-
+      - app下載
+      - 鲤鱼下载链接
+      - 下载链接
+      - 下载地址
+    reply: "下载页在：https://www.liyuvpn.com"
+  - id: official_page
+    enabled: true
+    keywords:
+      - 官方
+      - 官方頁
+      - 官方页
+      - 官方網站
+      - 官方网站
+      - 官網
+      - 官网
+      - official page
+      - official website
+    reply: "官方网站在：https://www.liyuvpn.com"
   - id: support
     enabled: true
     keywords:
       - 客服
       - 聯絡客服
-    reply: "客服資訊：https://example.com/support"
+      - 联系客服
+    reply: "客服信息：https://www.liyuvpn.com"
