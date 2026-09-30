@@ -30,7 +30,8 @@ func (r *commandTelegramRecorder) SendMessage(_ context.Context, _ int64, _ int6
 	r.messages = append(r.messages, text)
 	return nil
 }
-func (*commandTelegramRecorder) DeleteMessage(context.Context, int64, int64) error { return nil }
+func (*commandTelegramRecorder) DeleteMessage(context.Context, int64, int64) error    { return nil }
+func (*commandTelegramRecorder) DeleteMessages(context.Context, int64, []int64) error { return nil }
 func (*commandTelegramRecorder) RestrictMember(context.Context, int64, int64, time.Time) error {
 	return nil
 }

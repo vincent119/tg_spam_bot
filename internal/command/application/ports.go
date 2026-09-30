@@ -14,10 +14,16 @@ type Telegram interface {
 	IsAdmin(ctx context.Context, chatID, userID int64) (bool, error)
 	SendMessage(ctx context.Context, chatID, replyToMessageID int64, text string) error
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
+	DeleteMessages(ctx context.Context, chatID int64, messageIDs []int64) error
 	RestrictMember(ctx context.Context, chatID, userID int64, until time.Time) error
 	UnrestrictMember(ctx context.Context, chatID, userID int64) error
 	BanMember(ctx context.Context, chatID, userID int64) error
 	UnbanMember(ctx context.Context, chatID, userID int64) error
+}
+
+// DuplicateMessageFinder 只查詢同一群組、同一成員與同一內容指紋的近期訊息，供人工批次清除使用。
+type DuplicateMessageFinder interface {
+	FindDuplicateMessageIDs(ctx context.Context, chatID, userID, targetMessageID int64, since time.Time, limit int) ([]int64, error)
 }
 
 // TrustedMembers 只查詢資料庫可信任名單，不使用管理員快取。

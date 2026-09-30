@@ -156,7 +156,7 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	commandOptions := []commandapp.Option{}
+	commandOptions := []commandapp.Option{commandapp.WithDuplicateMessageFinder(postgresStore)}
 	if aiComponents.FeedSpamService != nil {
 		commandOptions = append(commandOptions, commandapp.WithFeedSpamSubmitter(aiComponents.FeedSpamService, []byte(cfg.Security.ContentHashKey), cfg.AIDetection.MaxTextChars, cfg.SemanticMemory.CacheTTL))
 	}

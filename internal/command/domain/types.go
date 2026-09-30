@@ -26,6 +26,8 @@ const (
 	NameClearWarn Name = "clearwarn"
 	// NameDelete 刪除被回覆訊息。
 	NameDelete Name = "del"
+	// NamePurge 批次刪除與被回覆訊息內容相同的近期訊息。
+	NamePurge Name = "purge"
 	// NameMute 限時禁言成員。
 	NameMute Name = "mute"
 	// NameUnmute 解除成員禁言。
@@ -148,6 +150,7 @@ func Definitions() []Definition {
 		{Name: NameWarn, AdminOnly: true, RequiresReply: true, Usage: "/warn [原因]（回覆成員訊息）", Description: "人工增加警告"},
 		{Name: NameClearWarn, AdminOnly: true, RequiresReply: true, Usage: "/clearwarn [原因]（回覆成員訊息）", Description: "失效目前警告"},
 		{Name: NameDelete, AdminOnly: true, RequiresReply: true, Usage: "/del（回覆訊息）", Description: "刪除訊息"},
+		{Name: NamePurge, AdminOnly: true, RequiresReply: true, Usage: "/purge（回覆訊息）", Description: "批次清除相同垃圾訊息"},
 		{Name: NameMute, AdminOnly: true, RequiresReply: true, Usage: "/mute <時間> [原因]（回覆成員訊息）", Description: "禁言成員"},
 		{Name: NameUnmute, AdminOnly: true, RequiresReply: true, Usage: "/unmute（回覆成員訊息）", Description: "解除禁言"},
 		{Name: NameBan, AdminOnly: true, RequiresReply: true, Usage: "/ban [原因]（回覆成員訊息）", Description: "封鎖成員"},

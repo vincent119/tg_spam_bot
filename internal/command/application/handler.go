@@ -24,11 +24,23 @@ type Handler struct {
 	store                ExecutionStore
 	limiter              Limiter
 	feedSpam             FeedSpamSubmitter
+	duplicates           DuplicateMessageFinder
 	botID                int64
 	hashKey              []byte
 	feedSpamMaxTextRunes int
 	feedSpamEmbeddingTTL time.Duration
 	clock                Clock
+}
+
+// WithDuplicateMessageFinder 啟用 `/purge`，只允許清除同一成員發送的相同內容。
+func WithDuplicateMessageFinder(finder DuplicateMessageFinder) Option {
+	return func(handler *Handler) error {
+		if finder == nil {
+			return errors.New("重複訊息查詢器不得為空")
+		}
+		handler.duplicates = finder
+		return nil
+	}
 }
 
 type systemClock struct{}
@@ -146,7 +158,7 @@ func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
 func validateAdminArgs(command domain.Command) error {
 	args := strings.TrimSpace(command.Args)
 	switch command.Name {
-	case domain.NameWarnings, domain.NameDelete, domain.NameUnmute:
+	case domain.NameWarnings, domain.NameDelete, domain.NamePurge, domain.NameUnmute:
 		if args != "" {
 			definition, _ := domain.LookupDefinition(command.Name)
 			return fmt.Errorf("用法：%s。", definition.Usage)
@@ -224,6 +236,21 @@ func (h *Handler) handleAdmin(ctx context.Context, command domain.Command) error
 			return h.fail(ctx, command, "刪除訊息失敗", err)
 		}
 		return h.finishWithReply(ctx, command, "completed", "已刪除訊息。", "")
+	case domain.NamePurge:
+		if h.duplicates == nil {
+			return h.finishWithReply(ctx, command, "failed", "批次清除功能尚未啟用。", string(domain.ErrorTemporary))
+		}
+		messageIDs, err := h.duplicates.FindDuplicateMessageIDs(ctx, command.ChatID, targetID, command.TargetMessage, now.Add(-48*time.Hour), 100)
+		if err != nil {
+			return h.fail(ctx, command, "查詢重複訊息失敗", err)
+		}
+		if len(messageIDs) == 0 {
+			return h.finishWithReply(ctx, command, "completed", "找不到可批次清除的近期相同訊息。", "")
+		}
+		if err := h.telegram.DeleteMessages(ctx, command.ChatID, messageIDs); err != nil {
+			return h.fail(ctx, command, "批次刪除訊息失敗", err)
+		}
+		return h.finishWithReply(ctx, command, "completed", fmt.Sprintf("已批次刪除 %d 則訊息。", len(messageIDs)), "")
 	case domain.NameMute:
 		durationText, reasonText, ok := strings.Cut(command.Args, " ")
 		if !ok {

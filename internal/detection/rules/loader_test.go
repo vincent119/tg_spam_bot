@@ -232,6 +232,21 @@ func TestSpamRulesDetectReportedCampaigns(t *testing.T) {
 			categoryID: "financial_document_fraud",
 		},
 		{
+			name:       "洗錢收款招攬",
+			message:    domain.Message{Text: "来几个能收款的洗钱直接1我"},
+			categoryID: "money_laundering_recruitment",
+		},
+		{
+			name:       "收米日賺招攬",
+			message:    domain.Message{Text: "来帮我收米 日赚1w"},
+			categoryID: "money_laundering_recruitment",
+		},
+		{
+			name:       "拉付費註冊與消費提成招攬",
+			message:    domain.Message{Text: "招人啊招聘SubRouter算力平台推广专员，9000底薪（完成3000提成要求获得底薪）+百分之十消费提成+每拉一个付费注册用户1美金奖金+每拉一个注册用户0.1美金奖励，@subrouter_ai"},
+			categoryID: "performance_recruitment_promo",
+		},
+		{
 			name:       "博弈投注招攬",
 			message:    domain.Message{Text: "足球投注，免费加盟代理 @seller"},
 			categoryID: "gambling",

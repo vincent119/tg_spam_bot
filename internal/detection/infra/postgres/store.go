@@ -173,6 +173,27 @@ func (s *Store) RecordDetection(ctx context.Context, event application.Event) er
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(toEvent(event)).Error
 }
 
+// FindDuplicateMessageIDs 尋找與指定訊息同群組、同成員且內容指紋相同的近期訊息。
+func (s *Store) FindDuplicateMessageIDs(ctx context.Context, chatID, userID, targetMessageID int64, since time.Time, limit int) ([]int64, error) {
+	if limit <= 0 || limit > 100 {
+		return nil, errors.New("批次清除上限必須介於 1 到 100")
+	}
+	var target detectionEvent
+	if err := s.db.WithContext(ctx).Where("chat_id=? AND user_id=? AND message_id=?", chatID, userID, targetMessageID).Take(&target).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("查詢目標訊息指紋: %w", err)
+	}
+	var messageIDs []int64
+	if err := s.db.WithContext(ctx).Model(&detectionEvent{}).
+		Where("chat_id=? AND user_id=? AND content_fingerprint=? AND created_at>=?", chatID, userID, target.ContentFingerprint, since.UTC()).
+		Order("message_id ASC").Limit(limit).Pluck("message_id", &messageIDs).Error; err != nil {
+		return nil, fmt.Errorf("查詢重複訊息: %w", err)
+	}
+	return messageIDs, nil
+}
+
 // Create 在單一 transaction 內建立違規並計算 30 天處置階梯。
 func (s *Store) Create(ctx context.Context, event application.Event) (count int, actions []application.EnforcementAction, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ type telegramSpy struct {
 	adminErr        error
 	messages        []string
 	deleted         int64
+	deletedMessages []int64
 	restricted      int64
 	restrictedUntil time.Time
 	unmuted         int64
@@ -35,6 +37,11 @@ func (s *telegramSpy) SendMessage(_ context.Context, _ int64, _ int64, text stri
 
 func (s *telegramSpy) DeleteMessage(_ context.Context, _ int64, messageID int64) error {
 	s.deleted = messageID
+	return nil
+}
+
+func (s *telegramSpy) DeleteMessages(_ context.Context, _ int64, messageIDs []int64) error {
+	s.deletedMessages = append([]int64(nil), messageIDs...)
 	return nil
 }
 
@@ -73,6 +80,14 @@ type storeStub struct {
 	clearCount  int64
 	completeErr error
 	result      domain.Result
+}
+
+type duplicateFinderStub struct {
+	messageIDs []int64
+}
+
+func (s duplicateFinderStub) FindDuplicateMessageIDs(context.Context, int64, int64, int64, time.Time, int) ([]int64, error) {
+	return append([]int64(nil), s.messageIDs...), nil
 }
 
 func (s *storeStub) ClaimCommand(context.Context, domain.Command) (domain.Claim, error) {
@@ -254,6 +269,31 @@ func TestHandlerMuteUsesInjectedUTCClock(t *testing.T) {
 	}
 	if want := now.Add(10 * time.Minute); !tg.restrictedUntil.Equal(want) {
 		t.Fatalf("until=%v，預期 %v", tg.restrictedUntil, want)
+	}
+}
+
+func TestHandlerPurgeDeletesOnlyDuplicateMessages(t *testing.T) {
+	t.Parallel()
+
+	tg := &telegramSpy{admins: map[int64]bool{1: true}}
+	store := &storeStub{claim: domain.Claim{Acquired: true}}
+	handler, err := NewHandler(tg, trustedStub{}, store, limiterStub{allowed: true}, 99, WithDuplicateMessageFinder(duplicateFinderStub{messageIDs: []int64{10, 15, 20}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := domain.Target{ID: 2}
+	command, err := domain.NewCommand(domain.Command{UpdateID: 31, ChatID: -1001, MessageID: 32, Actor: domain.Actor{ID: 1}, Target: &target, TargetMessage: 10, Name: domain.NamePurge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.Handle(t.Context(), command); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tg.deletedMessages, []int64{10, 15, 20}; !slices.Equal(got, want) {
+		t.Fatalf("DeleteMessages() = %v，預期 %v", got, want)
+	}
+	if got := store.result.Message; got != "已批次刪除 3 則訊息。" {
+		t.Fatalf("result message = %q", got)
 	}
 }
 

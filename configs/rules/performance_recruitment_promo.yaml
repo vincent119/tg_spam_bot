@@ -1,0 +1,12 @@
+version: "2026-09-30.1"
+categories:
+  - id: performance_recruitment_promo
+    name: 拉付費註冊與消費提成招攬
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    terms: [算力平台推廣專員, 付費註冊用戶, 消費提成, 每拉一個註冊用戶]
+    aliases: [算力平台推广专员, 付费注册用户, 消费提成, 每拉一个注册用户, 每拉一个付费注册用户]
+    require_any: []

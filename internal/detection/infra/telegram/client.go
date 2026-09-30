@@ -79,6 +79,14 @@ func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) err
 	return c.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID})
 }
 
+// DeleteMessages 批次刪除同一群組內的一至一百則訊息。
+func (c *Client) DeleteMessages(ctx context.Context, chatID int64, messageIDs []int64) error {
+	if len(messageIDs) == 0 || len(messageIDs) > 100 {
+		return errors.New("批次刪除訊息數量必須介於 1 到 100")
+	}
+	return c.call(ctx, "deleteMessages", map[string]any{"chat_id": chatID, "message_ids": messageIDs})
+}
+
 // SendWarning 發送包含成員識別碼的群組警告。
 func (c *Client) SendWarning(ctx context.Context, chatID, userID int64, text string) error {
 	return c.call(ctx, "sendMessage", map[string]any{"chat_id": chatID, "text": fmt.Sprintf("使用者 %d：%s", userID, text)})

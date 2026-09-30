@@ -31,8 +31,8 @@ func TestDefinitionsAndLookup(t *testing.T) {
 	t.Parallel()
 
 	definitions := Definitions()
-	if len(definitions) != 12 {
-		t.Fatalf("指令數=%d，預期 12", len(definitions))
+	if len(definitions) != 13 {
+		t.Fatalf("指令數=%d，預期 13", len(definitions))
 	}
 	definitions[0].Usage = "changed"
 	help, ok := LookupDefinition(NameHelp)

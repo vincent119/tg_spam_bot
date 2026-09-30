@@ -35,6 +35,33 @@ func TestClientDeleteMessage(t *testing.T) {
 	}
 }
 
+func TestClientDeleteMessages(t *testing.T) {
+	t.Parallel()
+	var path, body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		data := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(data)
+		body = string(data)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteMessages(t.Context(), 1, []int64{2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/bottoken/deleteMessages" || !strings.Contains(body, `"message_ids":[2,3]`) {
+		t.Fatalf("path = %s body = %s", path, body)
+	}
+	if err := client.DeleteMessages(t.Context(), 1, nil); err == nil {
+		t.Fatal("空白批次應失敗")
+	}
+}
+
 func TestClientMasksTokenFromError(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
