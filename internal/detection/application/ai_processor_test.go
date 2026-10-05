@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,12 +14,15 @@ import (
 
 type aiClassifierStub struct {
 	result domain.AIClassifyResult
+	input  domain.AIClassifyInput
 	err    error
 	calls  int
 }
 
-func (s *aiClassifierStub) Classify(context.Context, domain.AIClassifyInput) (domain.AIClassifyResult, error) {
+func (s *aiClassifierStub) Classify(_ context.Context, input domain.AIClassifyInput) (domain.AIClassifyResult, error) {
 	s.calls++
+	s.input = input
+	s.input.Signals = input.SignalsCopy()
 	if s.err != nil {
 		return domain.AIClassifyResult{}, s.err
 	}
@@ -214,4 +218,71 @@ func ambiguousResult() domain.Result {
 
 func testMessage() domain.Message {
 	return domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "app 下載 @x"}
+}
+
+func TestProcessorRepeatedContentAIModes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		aiMode     application.Mode
+		appMode    application.Mode
+		label      domain.AILabel
+		confidence float64
+		source     domain.AIConfidenceSource
+		err        error
+		wantSpam   bool
+		wantMode   application.Mode
+		wantSignal string
+		actions    []string
+	}{
+		{name: "正常判定不處置", label: domain.AILabelHam, confidence: 0.95, wantSignal: "ai_ham"},
+		{name: "不確定判定不處置", label: domain.AILabelUncertain, confidence: 0.95, wantSignal: "ai_uncertain"},
+		{name: "低信心不處置", label: domain.AILabelSpam, confidence: 0.5, wantSignal: "ai_uncertain"},
+		{name: "無信心來源不處置", label: domain.AILabelSpam, confidence: 1, source: domain.AIConfidenceUnavailable, wantSignal: "ai_uncertain"},
+		{name: "供應者失敗不處置", err: errors.New("測試用供應者失敗"), wantSignal: "ai_uncertain"},
+		{name: "AI 觀察模式", aiMode: application.ModeObserve, label: domain.AILabelSpam, confidence: 0.95, wantSignal: "ai_spam"},
+		{name: "AI 僅刪除模式", aiMode: application.ModeDeleteOnly, label: domain.AILabelSpam, confidence: 0.95, wantSpam: true, wantMode: application.ModeDeleteOnly, wantSignal: "ai_spam", actions: []string{"delete"}},
+		{name: "AI 僅刪除維持既有 app 觀察優先序", aiMode: application.ModeDeleteOnly, appMode: application.ModeObserve, label: domain.AILabelSpam, confidence: 0.95, wantSpam: true, wantMode: application.ModeDeleteOnly, wantSignal: "ai_spam", actions: []string{"delete"}},
+		{name: "AI 執行而 app 觀察", appMode: application.ModeObserve, label: domain.AILabelSpam, confidence: 0.95, wantMode: application.ModeObserve, wantSignal: "ai_spam"},
+		{name: "AI 執行而 app 僅刪除", appMode: application.ModeDeleteOnly, label: domain.AILabelSpam, confidence: 0.95, wantSpam: true, wantMode: application.ModeDeleteOnly, wantSignal: "ai_spam", actions: []string{"delete"}},
+		{name: "AI 執行首次僅一般階梯", label: domain.AILabelSpam, confidence: 0.95, wantSpam: true, wantSignal: "ai_spam", actions: []string{"delete", "warn"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.aiMode == "" {
+				tt.aiMode = application.ModeEnforce
+			}
+			if tt.wantMode == "" {
+				tt.wantMode = application.ModeEnforce
+			}
+			if tt.source == "" {
+				tt.source = domain.AIConfidenceModelReported
+			}
+			h := newRepeatProcessor(t, repeatProcessorOptions{aiMode: tt.aiMode, appMode: tt.appMode})
+			h.classifier.err = tt.err
+			h.classifier.result.Label = tt.label
+			h.classifier.result.Confidence = tt.confidence
+			h.classifier.result.ConfidenceSource = tt.source
+			for id := int64(1); id <= 3; id++ {
+				result := processRepeat(t, h, repeatMessage(id))
+				if result.Spam != (id == 3 && tt.wantSpam) || (id < 3 && h.classifier.calls != 0) {
+					t.Fatalf("第 %d 則的處置或 AI 候選門檻錯誤：%+v", id, result)
+				}
+			}
+			if h.classifier.calls != 1 || h.classifier.input.RuleScore != 0 || !slices.Equal(h.classifier.input.Signals, []string{domain.SignalRepeatedContent}) {
+				t.Fatalf("只應由零分重複訊號送 AI：次數=%d，輸入=%+v", h.classifier.calls, h.classifier.input)
+			}
+			last := h.violations.events[2]
+			if last.Mode != tt.wantMode || !slices.Contains(last.Result.Signals, domain.SignalRepeatedContent) || !slices.Contains(last.Result.Signals, tt.wantSignal) || !slices.Equal(h.telegram.actions, tt.actions) {
+				t.Fatalf("模式或處置不符：模式=%s，結果=%+v，處置=%v", last.Mode, last.Result, h.telegram.actions)
+			}
+			wantCreates := 0
+			if tt.wantSpam {
+				wantCreates = 1
+			}
+			if h.violations.creates != wantCreates {
+				t.Fatalf("違規建立次數=%d，預期=%d", h.violations.creates, wantCreates)
+			}
+		})
+	}
 }

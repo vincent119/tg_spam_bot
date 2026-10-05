@@ -298,6 +298,67 @@ func TestSpamRulesDoNotBanDrugTermWithoutContactOrTransactionSignal(t *testing.T
 	}
 }
 
+func TestSpamRulesMoneyLaunderingVariants(t *testing.T) {
+	t.Parallel()
+
+	ruleSet, err := LoadDir(filepath.Join("..", "..", "..", "configs", "rules"))
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	detector, err := domain.NewDetector(ruleSet, domain.NewNormalizer(domain.OpenCCConverter{}, 4096), nil, nil)
+	if err != nil {
+		t.Fatalf("NewDetector() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		text string
+		spam bool
+	}{
+		{name: "截圖帶碼收米", text: "带码来干 收米一天1W", spam: true},
+		{name: "截圖風口收米", text: "国庆风口来收米 赚1W", spam: true},
+		{name: "截圖洗洗米", text: "帮我洗洗米 赚九千", spam: true},
+		{name: "截圖洗米秒結", text: "有码的来帮我洗米稳定秒结日挣1W", spam: true},
+		{name: "截圖有碼洗米", text: "有码来洗米 日挣1W", spam: true},
+		{name: "截圖幫忙洗米", text: "能帮我洗米的来 日挣1w", spam: true},
+		{name: "繁體帶碼收米", text: "帶碼來幹 收米一天1W", spam: true},
+		{name: "繁體風口收米", text: "國慶風口來收米 賺1W", spam: true},
+		{name: "繁體洗洗米", text: "幫我洗洗米 賺九千", spam: true},
+		{name: "繁體有碼洗米", text: "有碼來洗米 日掙1W", spam: true},
+		{name: "全形數字與大小寫", text: "有碼來洗米 日掙１Ｗ", spam: true},
+		{name: "零寬字元", text: "有碼來洗\u200b米 日\u200b掙1W", spam: true},
+		{name: "換行收益", text: "幫我洗洗米\n\t賺九千", spam: true},
+		{name: "不同一天收益", text: "带码来干 收米一天8千", spam: true},
+		{name: "不同收米收益", text: "国庆风口来收米 赚8000", spam: true},
+		{name: "不同洗米收益", text: "帮我洗洗米 赚两千", spam: true},
+		{name: "收米收益無空白", text: "国庆风口来收米赚8000", spam: true},
+		{name: "洗米收益無空白", text: "帮我洗洗米赚两千", spam: true},
+		{name: "煮飯洗米", text: "請幫我洗米煮飯"},
+		{name: "簡體洗洗米煮飯", text: "帮我洗洗米再煮饭"},
+		{name: "洗米教學", text: "洗米時不用一直搓揉，輕輕沖洗即可"},
+		{name: "一般收款", text: "請掃描付款碼完成收款"},
+		{name: "帶碼收款", text: "記得帶碼出門收款"},
+		{name: "稻作收米", text: "今年稻作收米後先晾乾再入倉"},
+		{name: "一般收益", text: "今天賺1W"},
+		{name: "日掙收益", text: "這份工作日掙一千"},
+		{name: "秒結討論", text: "秒結是什麼意思"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := detector.Detect(domain.Message{Text: tt.text})
+			if got.Spam != tt.spam {
+				t.Fatalf("Detect() = spam %v category %q score %d matches=%+v signals=%v", got.Spam, got.CategoryID, got.Score, got.Matches, got.Signals)
+			}
+			if tt.spam && (got.CategoryID != "money_laundering_recruitment" || got.Action != domain.ActionProgressive) {
+				t.Fatalf("Detect() = category %q action %q", got.CategoryID, got.Action)
+			}
+		})
+	}
+}
+
 func TestSpamRulesDoNotTreatOrdinaryDividendAsProfitClaim(t *testing.T) {
 	t.Parallel()
 

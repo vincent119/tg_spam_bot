@@ -20,6 +20,7 @@ type Store struct {
 	violations map[string][]time.Time
 	actions    map[string]application.ActionResult
 	windows    map[string][]observation
+	repeats    map[int64]repeatState
 	joined     map[string]time.Time
 	now        func() time.Time
 	window     time.Duration
@@ -32,13 +33,29 @@ type observation struct {
 	fingerprint string
 }
 
+const (
+	repeatWindow    = 30 * time.Minute
+	repeatThreshold = 3
+)
+
+type repeatObservation struct {
+	observation
+	messageID int64
+}
+
+type repeatState struct {
+	items         []repeatObservation
+	cooldownUntil time.Time
+}
+
 // NewStore 建立具有時間窗與容量上限的記憶體儲存器。
 func NewStore(window time.Duration, maxEntries int) *Store {
 	return &Store{
 		updates: make(map[int64]bool), trusted: make(map[string]string),
 		violations: make(map[string][]time.Time), actions: make(map[string]application.ActionResult),
 		windows: make(map[string][]observation), joined: make(map[string]time.Time),
-		now: time.Now, window: window, maxEntries: maxEntries,
+		repeats: make(map[int64]repeatState),
+		now:     time.Now, window: window, maxEntries: maxEntries,
 	}
 }
 
@@ -102,14 +119,11 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 			items = append(items, item)
 		}
 	}
-	var sameUser, sameContent, distinctUsers int
+	var sameUser, distinctUsers int
 	users := make(map[int64]struct{})
 	for _, item := range items {
 		if item.userID == message.UserID {
 			sameUser++
-			if item.fingerprint == fingerprint {
-				sameContent++
-			}
 		}
 		if item.fingerprint == fingerprint {
 			users[item.userID] = struct{}{}
@@ -125,8 +139,8 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 	if sameUser >= 4 {
 		signals = append(signals, "high_frequency")
 	}
-	if sameContent >= 1 {
-		signals = append(signals, "repeated_content")
+	if s.observeRepeat(message, fingerprint, now) {
+		signals = append(signals, domain.SignalRepeatedContent)
 	}
 	if distinctUsers >= 2 {
 		signals = append(signals, "coordinated_content")
@@ -139,6 +153,43 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 		signals = append(signals, "new_member_link")
 	}
 	return signals, nil
+}
+
+// observeRepeat 由 Observe 持鎖呼叫，獨立歷史避免長窗口改變頻率與協同訊號。
+func (s *Store) observeRepeat(message domain.Message, fingerprint string, now time.Time) bool {
+	state := s.repeats[message.ChatID]
+	if now.Before(state.cooldownUntil) {
+		return false
+	}
+	cutoff := now.Add(-repeatWindow)
+	items := state.items[:0]
+	count := 0
+	seen := false
+	for _, item := range state.items {
+		if !item.at.After(cutoff) {
+			continue
+		}
+		items = append(items, item)
+		if item.userID == message.UserID && item.fingerprint == fingerprint {
+			count++
+			seen = seen || item.messageID == message.MessageID
+		}
+	}
+	clear(state.items[len(items):])
+	if !seen {
+		items = append(items, repeatObservation{
+			observation: observation{at: now, userID: message.UserID, fingerprint: fingerprint},
+			messageID:   message.MessageID,
+		})
+		count++
+	}
+	if s.maxEntries > 0 && len(items) > s.maxEntries {
+		// 去重歷史不足時暫停重複觀測，避免丟失身份後把重送重新計入。
+		s.repeats[message.ChatID] = repeatState{cooldownUntil: now.Add(repeatWindow)}
+		return false
+	}
+	s.repeats[message.ChatID] = repeatState{items: items}
+	return count >= repeatThreshold
 }
 
 // RecordJoin 保存 Bot 實際觀測到的入群時間。

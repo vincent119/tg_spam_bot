@@ -110,6 +110,30 @@ func TestAITriggerPolicyEvaluate(t *testing.T) {
 	}
 }
 
+func TestAITriggerPolicyRepeatedContent(t *testing.T) {
+	t.Parallel()
+	eligible := application.AIEligibility{ChatAuthorized: true, MessageSupported: true}
+	for _, tt := range []struct {
+		name        string
+		spam        bool
+		eligibility application.AIEligibility
+		wantCall    bool
+		reason      string
+	}{
+		{name: "零分重複可疑", eligibility: eligible, wantCall: true, reason: "weak_suspicious_signal"},
+		{name: "明確規則垃圾仍略過 AI", spam: true, eligibility: eligible, reason: "clear_rule_spam"},
+		{name: "豁免仍略過 AI", eligibility: application.AIEligibility{ChatAuthorized: true, MessageSupported: true, Exempt: true}, reason: "not_eligible"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := domain.Result{Spam: tt.spam, Signals: []string{domain.SignalRepeatedContent}}
+			decision := (application.AITriggerPolicy{OnlyWhenAmbiguous: true}).Evaluate(result, tt.eligibility)
+			if decision.ShouldClassify != tt.wantCall || decision.Reason != tt.reason || !slices.Contains(decision.Signals, domain.SignalRepeatedContent) {
+				t.Fatalf("重複訊號候選判定不符：%+v", decision)
+			}
+		})
+	}
+}
+
 type embeddingProviderSpy struct {
 	input domain.EmbeddingInput
 	err   error

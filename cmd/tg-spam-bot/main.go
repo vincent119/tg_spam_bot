@@ -124,7 +124,8 @@ func run(cfg config.Config) error {
 	if err := redisClient.Ping(startupCtx).Err(); err != nil {
 		return err
 	}
-	behaviors, err := redisstore.NewBehaviorStore(redisClient, time.Minute)
+	behaviors, err := redisstore.NewBehaviorStore(redisClient, time.Minute,
+		redisstore.WithRepeatPolicy(cfg.Behavior.RepeatWindow, cfg.Behavior.RepeatThreshold))
 	if err != nil {
 		return err
 	}

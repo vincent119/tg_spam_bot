@@ -36,6 +36,7 @@ func TestValidate(t *testing.T) {
 	valid.DB.MaxIdleConns = 5
 	valid.DB.ConnMaxLifetime = 5 * time.Minute
 	valid.Redis.Addr = "redis:6379"
+	valid.Behavior = BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3}
 	valid.Security.ContentHashKey = "01234567890123456789012345678901"
 	valid.Rules.Dir = "rules"
 	valid.AIDetection.Mode = ModeObserve
@@ -300,4 +301,84 @@ rules:
 	if !cfg.Log.Rotate.Enabled || cfg.Log.Rotate.MaxBackups != 14 || cfg.Log.Rotate.MaxAgeDays != 30 {
 		t.Fatalf("LOG_ROTATE_* 未正確載入：%+v", cfg.Log.Rotate)
 	}
+}
+
+func TestLoadBehaviorDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want BehaviorConfig
+	}{
+		{name: "舊設定使用預設", want: BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3}},
+		{name: "部分設定補上門檻", yaml: "behavior:\n  repeat_window: 45m\n", want: BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 3}},
+		{name: "完整 YAML 政策", yaml: "behavior:\n  repeat_window: 20m\n  repeat_threshold: 4\n", want: BehaviorConfig{RepeatWindow: 20 * time.Minute, RepeatThreshold: 4}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(behaviorTestConfigPath(t, tt.yaml))
+			if err != nil || cfg.Behavior != tt.want {
+				t.Fatalf("重複政策=%+v，預期=%+v，錯誤=%v", cfg.Behavior, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestLoadBehaviorEnvironmentOverrides(t *testing.T) {
+	path := behaviorTestConfigPath(t, "behavior:\n  repeat_window: 20m\n  repeat_threshold: 4\n")
+	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "45m")
+	t.Setenv("BEHAVIOR_REPEAT_THRESHOLD", "5")
+	cfg, err := Load(path)
+	if err != nil || cfg.Behavior != (BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 5}) {
+		t.Fatalf("環境變數未覆寫 YAML：政策=%+v，錯誤=%v", cfg.Behavior, err)
+	}
+	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "0s")
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "behavior.repeat_window") {
+		t.Fatalf("非法環境設定應拒絕：%v", err)
+	}
+}
+
+func TestValidateBehavior(t *testing.T) {
+	tests := []struct {
+		name   string
+		window string
+		count  string
+		valid  bool
+	}{
+		{name: "下界", window: "1ms", count: "2", valid: true},
+		{name: "上界", window: "24h", count: "100", valid: true},
+		{name: "零窗口", window: "0s", count: "3"},
+		{name: "負窗口", window: "-1s", count: "3"},
+		{name: "精度不足", window: "1us", count: "3"},
+		{name: "窗口過長", window: "25h", count: "3"},
+		{name: "零門檻", window: "30m", count: "0"},
+		{name: "負門檻", window: "30m", count: "-1"},
+		{name: "單則門檻", window: "30m", count: "1"},
+		{name: "門檻過大", window: "30m", count: "101"},
+		{name: "無效時間", window: "invalid", count: "3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(behaviorTestConfigPath(t, "behavior:\n  repeat_window: "+tt.window+"\n  repeat_threshold: "+tt.count+"\n"))
+			if (err == nil) != tt.valid {
+				t.Fatalf("設定合法=%v，錯誤=%v", tt.valid, err)
+			}
+		})
+	}
+}
+
+func behaviorTestConfigPath(t *testing.T, behavior string) string {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("REDIS_ADDR", "localhost:6379")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "test-token")
+	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "test-webhook")
+	t.Setenv("TELEGRAM_ALLOWED_CHAT_IDS", "-1001")
+	t.Setenv("CONTENT_HASH_KEY", strings.Repeat("test", 8))
+	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "")
+	t.Setenv("BEHAVIOR_REPEAT_THRESHOLD", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("app:\n  mode: observe\n"+behavior), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
