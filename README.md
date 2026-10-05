@@ -2,7 +2,7 @@
 
 以 Go 實作的 Telegram supergroup 管理服務，支援繁體中文、簡體中文、英文及混合文字偵測。系統透過 Webhook 接收訊息，檢查網址、邀請連結、關鍵詞、發送頻率、重複內容與跨帳號協同行為，並依政策刪除訊息、警告、禁言或封鎖成員。
 
-HTTP 路由使用 Gin，PostgreSQL 使用 GORM 與 `AutoMigrate`，短期行為狀態使用 Redis，結構化日誌使用 `github.com/vincent119/zlogger`。
+HTTP 路由使用 Gin，PostgreSQL 結構由部署前版本化 runner 管理，Bot 僅驗證版本與結構；短期行為狀態使用 Redis，結構化日誌使用 `github.com/vincent119/zlogger`。
 
 ## 功能
 
@@ -34,7 +34,7 @@ HTTP 路由使用 Gin，PostgreSQL 使用 GORM 與 `AutoMigrate`，短期行為�
 ## 系統需求
 
 - Go 1.25 以上版本，僅直接執行程式時需要。
-- PostgreSQL 17，其他相容版本需自行驗證。
+- PostgreSQL 16 至 18；正式環境版本仍須以備份還原演練確認。
 - Redis 8，其他相容版本需自行驗證。
 - 可供 Telegram 連入的公開 HTTPS 網址。
 - Docker 與 Docker Compose，使用容器部署時需要。
@@ -51,6 +51,8 @@ cp .env.example .env
 
 ```env
 POSTGRES_PASSWORD=請設定安全的資料庫密碼
+DB_APP_USER=tg_spam_app
+DB_APP_PASSWORD=請設定另一組安全的資料庫密碼
 TELEGRAM_BOT_TOKEN=由BotFather取得的Token
 TELEGRAM_WEBHOOK_SECRET=請使用下方命令產生
 TELEGRAM_WEBHOOK_URL=https://你的網域/telegram/webhook
@@ -77,10 +79,10 @@ docker compose logs -f app
 
 `log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因或 Telegram 訊息原文。
 
-啟動時出現 `資料庫結構同步完成` 代表 GORM AutoMigrate 已成功；失敗時應用程式會在 HTTP Server 啟動前結束。查詢最近五分鐘日誌：
+`migrate` 容器逐版記錄 `stream`、`version`、`status`、`provenance`、checksum 摘要與耗時，成功後 app 才啟動。Bot 啟動時的 `資料庫版本驗證完成` 代表必要版本、checksum 與 schema 契約均已通過；任一條件失敗時，HTTP Server 不會啟動。查詢最近五分鐘日誌：
 
 ```sh
-docker compose logs app --since 5m
+docker compose logs migrate app --since 5m
 ```
 
 PostgreSQL 與 Redis 健康後，應用程式才會啟動。PostgreSQL 資料與 Redis 狀態分別保存於 named volume。
@@ -501,48 +503,51 @@ Redis Client 優先使用 `REDIS_PASSWORD`，只有其為空時才使用 `REDIS_
 
 ## PostgreSQL 初始化
 
-外部 PostgreSQL 只需先建立應用程式使用者與 database，不需要手動建立資料表：
+資料庫結構由獨立的 `tg-spam-migrate` 執行 `up`，Bot 不再呼叫 GORM `AutoMigrate`。runner 使用可執行 DDL 的部署角色；Bot 使用另一個僅具連線、必要表格 DML、序列及查詢權限的角色。Docker Compose 在全新資料卷初始化時由 [`10-app-role.sh`](deployments/postgres/10-app-role.sh)建立受限角色與後續物件的預設授權。既有資料卷不會重新執行初始化腳本，須先備份並明示執行：
 
-```sql
-CREATE USER tg_spam WITH PASSWORD '請替換為安全密碼';
-CREATE DATABASE tg_spam OWNER tg_spam;
+若 `configs/config.yaml` 已設定 `db.url`，該 URL 會覆蓋 Compose 的 `DB_USER`／`DB_PASSWORD`，必須改為 DML 角色的連線字串或清空；避免 Bot 仍以部署 DDL 帳號連線。
+初始化腳本不重設既有角色密碼；若調整 `DB_APP_PASSWORD`，須由資料庫管理員同步輪替角色密碼，再啟動 app。
+
+```sh
+docker compose exec postgres /docker-entrypoint-initdb.d/10-app-role.sh
 ```
 
-應用程式帳號需要 database 連線權限，以及目標 schema 的 `USAGE`、`CREATE` 和其建立物件的讀寫權限。建議讓應用程式帳號成為 database 與 schema owner。
+外部 PostgreSQL 需由部署者建立 database、DDL 與 DML 角色，並授予 DML 角色 `CONNECT`、`USAGE ON SCHEMA public`、必要業務表的 `SELECT, INSERT, UPDATE, DELETE` 與序列的 `USAGE, SELECT`。runner 的 `migration` schema 只授予 Bot `USAGE` 及版本表 `SELECT`，不得授予其 `INSERT, UPDATE, DELETE`。DDL 角色須有建表及新增索引權限；DML 角色不得具有 schema `CREATE`。新表與序列需透過 `ALTER DEFAULT PRIVILEGES FOR ROLE <DDL角色> IN SCHEMA public` 延續授權，`migration` schema 的預設授權則僅為 `SELECT`。可參考上方腳本，但不得把正式密碼寫入 Git。
 
-服務啟動時，GORM `AutoMigrate` 會建立：
+全新 database 在啟動時依核心 stream 套用 `20261005110000` 基線及 `11400`、`11600`、`11700`、`11800`；語意記憶啟用時，先由部署者安裝 pgvector，再套用語意基線 `20261005110100` 與 `11500`。語意功能關閉時不需 pgvector，語意版本保持 `pending`。
 
-- `processed_updates`
-- `detection_events`
-- `violations`
-- `enforcement_actions`
-- `trusted_members`
-- `command_executions`
-- `auto_reply_executions`
-- `ai_detection_events`
-- `semantic_manual_samples`
-- `manual_feedback_currents`、`manual_feedback_revisions`、`manual_feedback_epoch_rows`
-- `manual_feedback_actions`
-- `repeat_action_executions`、`repeat_action_steps`
+升級既有 GORM `AutoMigrate` 資料庫前，先備份、在還原副本執行 `status`，核對結構後明示接管：
 
-若啟用語意記憶，另需先在 database 安裝 pgvector：
+```sh
+docker compose run --rm migrate status
+docker compose run --rm migrate up --adopt-existing
+docker compose run --rm migrate verify
+```
+
+`--adopt-existing` 僅在既有 schema 符合表、欄位型別、空值約束及索引契約時記為 `adopted`；缺少結構的版本會實際執行 SQL 並記為 `applied`。目前 GORM 建立的既有庫缺少 `11800` 的 `idx_ai_feedback_cache`，因此該版通常會補跑。runner 每版先持久化 `running`，再於交易內執行 SQL、驗證結構並寫入完成狀態；失敗或中斷保留 `failed`／`running`，重跑會停止，須由維運者核對並人工修復。checksum 不符也會停止，不提供自動 `down`。
+
+正式切換前須驗證備份能還原，並在還原副本完成 `status`、`up`、`verify`、Bot 啟動與回退演練。此變更未連接或遷移正式資料庫。直接啟動 Bot binary 時也會驗證版本；若繞過部署前 runner，Bot 會拒絕啟動。既有 `down.sql` 可能刪除人工標籤與處置稽核資料，不得作為自動回退。
+
+部署角色可用下列命令查詢 runner 狀態；切勿在日誌或 issue 貼出連線密碼：
+
+```sh
+docker compose logs migrate --since 5m
+docker compose run --rm migrate status
+```
+
+外部資料庫初次建立的簡化範例如下；角色權限仍須依上段設定：
+
+```sql
+CREATE ROLE tg_spam_migrator LOGIN PASSWORD '請替換為安全密碼';
+CREATE DATABASE tg_spam OWNER tg_spam_migrator;
+```
+
+若啟用語意記憶，需先在目標 database 安裝 pgvector：
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-啟用語意記憶後，服務會額外建立：
-
-- `message_embeddings`
-- `semantic_blacklist_categories`
-- `semantic_blacklist_examples`
-- `scoped_manual_feedback_embeddings`
-
-`violations` 會新增人工來源、管理員、原因及失效稽核欄位；`command_executions` 保存 `chat_id + update_id` 冪等鍵與人工操作結果。同時建立索引、約束及資料表與欄位註解。新功能另提供 `migrations/20261005111400` 至 `20261005111800` 的版本化 SQL，供部署者審核與依序套用；應用程式啟動不會自動執行這些 SQL，仍會呼叫 GORM `AutoMigrate`。
-
-正式環境升級前應先備份 PostgreSQL，在備份還原環境驗證 SQL 升級與新版 GORM `AutoMigrate` 的相容性，再安排正式執行與回退。不要未經檢查就在正式資料庫執行 `down.sql`，以免移除人工標籤、處置稽核等新增資料。
-
-Docker Compose 會自動建立 `tg_spam` 使用者與 database，不需要額外執行上述 SQL。
 
 ### PostgreSQL 查詢範例
 
@@ -772,9 +777,9 @@ PostgreSQL Repository 整合測試只有在設定 `TEST_DATABASE_URL` 時執行�
 
 確認指令具有 Telegram `bot_command` entity、群組位於允許清單、指令 suffix 是目前 Bot username，而且操作者仍是群組管理員。`/warnings`、`/warn`、`/clearwarn`、`/del`、`/mute`、`/unmute`、`/ban`、`/feedspam`、`/spam`、`/check` 必須回覆目標訊息；`/ham` 必須回覆或提供本群可查證的 `event:tg:<update_id>`。`/spam`、`/check` 的目標須有文字或媒體說明。其他 Bot 的指令與超過公開指令頻率限制的請求會靜默忽略。
 
-### PostgreSQL 啟動時 AutoMigrate 失敗
+### PostgreSQL migration 或 Bot 版本驗證失敗
 
-確認 database 已存在、帳號是 database 或 schema owner，並具有 `USAGE` 與 `CREATE`。若既有環境曾使用舊版 SQL 腳本建立資料表，需先處理約束名稱相容性，不要直接刪除正式資料。
+先以 `docker compose logs migrate app --since 5m` 查詢失敗版本及穩定錯誤代碼，再用 `docker compose run --rm migrate status` 確認 `pending`、`running`、`failed` 或 `checksum_mismatch`。`running`／`failed` 表示 dirty，不能只刪除狀態列後重跑；應先在備份還原副本核對 SQL 是否部分套用、修復結構，再安排明示的人工恢復程序。若是 DML 角色權限不足，核對初始化腳本及新表預設授權；不要為了讓 Bot 啟動而授予常駐帳號 DDL 權限。
 
 ### Redis 驗證失敗
 

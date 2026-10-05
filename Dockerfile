@@ -3,8 +3,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-# 此服務不使用 Gin 的 MsgPack 功能；排除該編解碼器可降低容器建置記憶體需求。
-RUN CGO_ENABLED=0 GOMAXPROCS=1 go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-bot ./cmd/tg-spam-bot
+# 排除 Gin 的 MsgPack，並限制編譯器記憶體，以適應較小的容器建置環境。
+RUN CGO_ENABLED=0 GOMAXPROCS=1 GOMEMLIMIT=1200MiB go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-bot ./cmd/tg-spam-bot
+RUN CGO_ENABLED=0 GOMAXPROCS=1 GOMEMLIMIT=1200MiB go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-migrate ./cmd/tg-spam-migrate
 
 FROM alpine:3.22
 ARG TIMEZONE=Asia/Taipei
@@ -18,6 +19,8 @@ RUN apk add --no-cache tzdata \
     && adduser -S -G app app
 WORKDIR /app
 COPY --from=build /out/tg-spam-bot /app/tg-spam-bot
+COPY --from=build /out/tg-spam-migrate /app/tg-spam-migrate
+COPY migrations /app/migrations
 COPY configs /app/configs
 RUN mkdir -p /app/logs \
     && chown -R app:app /app/logs
