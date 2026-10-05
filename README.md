@@ -75,7 +75,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-`log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因或 Telegram 訊息原文。
+`log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。Webhook 接收與偵測判定摘要會記錄 `user_id`，Telegram 有提供時也記錄當時的 `username`；`username` 可能變動，查證時仍以 `user_id` 為準。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因、`first_name` 或 Telegram 訊息原文。
 
 啟動時出現 `資料庫結構同步完成` 代表 GORM AutoMigrate 已成功；失敗時應用程式會在 HTTP Server 啟動前結束。查詢最近五分鐘日誌：
 
@@ -538,13 +538,32 @@ CREATE EXTENSION IF NOT EXISTS vector;
 - `semantic_blacklist_examples`
 - `scoped_manual_feedback_embeddings`
 
-`violations` 會新增人工來源、管理員、原因及失效稽核欄位；`command_executions` 保存 `chat_id + update_id` 冪等鍵與人工操作結果。同時建立索引、約束及資料表與欄位註解。新功能另提供 `migrations/20261005111400` 至 `20261005111800` 的版本化 SQL，供部署者審核與依序套用；應用程式啟動不會自動執行這些 SQL，仍會呼叫 GORM `AutoMigrate`。
+`violations` 會新增人工來源、管理員、原因及失效稽核欄位；`command_executions` 保存 `chat_id + update_id` 冪等鍵與人工操作結果。同時建立索引、約束及資料表與欄位註解。新功能另提供 `migrations/20261005111400` 至 `20261005111800`，以及 `migrations/20261005133800_detection_event_message_metadata` 的版本化 SQL，供部署者審核與依序套用；應用程式啟動不會自動執行這些 SQL，仍會呼叫 GORM `AutoMigrate`。
 
 正式環境升級前應先備份 PostgreSQL，在備份還原環境驗證 SQL 升級與新版 GORM `AutoMigrate` 的相容性，再安排正式執行與回退。不要未經檢查就在正式資料庫執行 `down.sql`，以免移除人工標籤、處置稽核等新增資料。
 
 Docker Compose 會自動建立 `tg_spam` 使用者與 database，不需要額外執行上述 SQL。
 
 ### PostgreSQL 查詢範例
+
+查詢指定訊息的發送者快照與時間差：
+
+```sql
+SELECT
+  update_id,
+  chat_id,
+  message_id,
+  user_id,
+  username,
+  first_name,
+  message_sent_at AT TIME ZONE 'Asia/Taipei' AS message_sent_at_taipei,
+  created_at AT TIME ZONE 'Asia/Taipei' AS detected_at_taipei,
+  EXTRACT(EPOCH FROM (created_at - message_sent_at))::bigint AS detection_lag_seconds
+FROM detection_events
+WHERE chat_id = -1001234567890 AND message_id = 12345;
+```
+
+`message_sent_at` 是 Telegram 原始訊息時間，`created_at` 是 Bot 判定時間。新欄位只會記錄升級後收到的訊息；舊紀錄與無公開 username 的使用者會顯示 `NULL`。`username`、`first_name` 是發送當時的快照，不能當作穩定身分識別，應以 `user_id` 為準。
 
 最近 AI 判定：
 

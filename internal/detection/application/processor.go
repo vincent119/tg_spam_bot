@@ -196,12 +196,17 @@ func (p *Processor) execute(ctx context.Context, event Event, actions []Enforcem
 
 // logDetectionResult 只記錄判定摘要，避免將訊息原文或敏感內容寫入日誌。
 func logDetectionResult(ctx context.Context, event Event) {
-	zlogger.DebugContext(ctx, "完成垃圾訊息判定",
+	zlogger.DebugContext(ctx, "完成垃圾訊息判定", detectionResultLogFields(event)...)
+}
+
+func detectionResultLogFields(event Event) []zlogger.Field {
+	fields := []zlogger.Field{
 		zlogger.String("subsystem", "detection"),
 		zlogger.String("event_id", event.ID),
 		zlogger.Int64("update_id", event.Message.UpdateID),
 		zlogger.Int64("chat_id", event.Message.ChatID),
 		zlogger.Int64("message_id", event.Message.MessageID),
+		zlogger.Int64("user_id", event.Message.UserID),
 		zlogger.String("category_id", event.Result.CategoryID),
 		zlogger.String("severity", string(event.Result.Severity)),
 		zlogger.Int("score", event.Result.Score),
@@ -212,7 +217,11 @@ func logDetectionResult(ctx context.Context, event Event) {
 		zlogger.String("rule_version", event.Result.RuleVersion),
 		zlogger.Int("match_count", len(event.Result.Matches)),
 		zlogger.Strings("signals", event.Result.Signals),
-	)
+	}
+	if event.Message.Username != "" {
+		fields = append(fields, zlogger.String("username", event.Message.Username))
+	}
+	return fields
 }
 
 func (p *Processor) fingerprint(text string) string {

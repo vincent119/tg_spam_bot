@@ -108,12 +108,20 @@ func TestStoreIntegration(t *testing.T) {
 		t.Fatalf("未登錄 IsExempt()=%v, %v", trusted, err)
 	}
 
+	sentAt := time.Date(2026, time.October, 5, 4, 30, 0, 0, time.UTC)
 	observeEvent := application.Event{
-		ID: fmt.Sprintf("it-%d-observe", seed), Message: domain.Message{UpdateID: seed + 600, ChatID: chatID, MessageID: 600, UserID: userID},
+		ID: fmt.Sprintf("it-%d-observe", seed), Message: domain.Message{UpdateID: seed + 600, ChatID: chatID, MessageID: 600, UserID: userID, Username: "sender", FirstName: "發送者", ReceivedAt: sentAt},
 		Fingerprint: "fingerprint", Mode: application.ModeObserve, Result: domain.Result{RuleVersion: "it"}, CreatedAt: time.Now().UTC(),
 	}
 	if err := store.RecordDetection(ctx, observeEvent); err != nil {
 		t.Fatal(err)
+	}
+	var savedEvent detectionEvent
+	if err := db.WithContext(ctx).Where("event_id = ?", observeEvent.ID).Take(&savedEvent).Error; err != nil {
+		t.Fatal(err)
+	}
+	if savedEvent.Username == nil || *savedEvent.Username != "sender" || savedEvent.FirstName == nil || *savedEvent.FirstName != "發送者" || savedEvent.MessageSentAt == nil || !savedEvent.MessageSentAt.Equal(sentAt) {
+		t.Fatalf("偵測事件快照不符：%+v", savedEvent)
 	}
 	if historical, found, err := store.FindHistoricalDetection(ctx, chatID, 600); err != nil || !found || historical.RuleVersion != "it" || historical.Mode != application.ModeObserve {
 		t.Fatalf("FindHistoricalDetection()=%+v found=%v err=%v", historical, found, err)

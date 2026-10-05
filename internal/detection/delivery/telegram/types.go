@@ -177,7 +177,8 @@ func (u Update) DomainMessage() (domain.Message, bool) {
 	}
 	return domain.NewMessage(domain.Message{
 		UpdateID: u.UpdateID, ChatID: u.Message.Chat.ID, MessageID: u.Message.MessageID,
-		UserID: u.Message.From.ID, Text: text, ReferenceText: u.Message.referenceText(), Entities: domainEntities(entities),
+		UserID: u.Message.From.ID, Username: u.Message.From.Username, FirstName: u.Message.From.FirstName,
+		Text: text, ReferenceText: u.Message.referenceText(), Entities: domainEntities(entities),
 		ReceivedAt: time.Unix(u.Message.Date, 0).UTC(),
 	}), true
 }
