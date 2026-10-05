@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -97,5 +98,49 @@ func BenchmarkDetector(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		detector.Detect(Message{Text: "高薪兼職，earn money fast @example"})
+	}
+}
+
+func TestDetectorRepeatedContentObservationOnly(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		action    Action
+		threshold int
+		text      string
+		spam      bool
+		score     int
+		disabled  bool
+	}{
+		{name: "重複不能補足一般門檻", action: ActionProgressive, threshold: 60, text: "測試詞", score: 40},
+		{name: "重複不能滿足封鎖條件", action: ActionBan, threshold: 40, text: "測試詞", score: 40},
+		{name: "其他訊號仍可加分", action: ActionProgressive, threshold: 60, text: "測試詞 @contact", score: 60, spam: true},
+		{name: "其他訊號仍可滿足封鎖條件", action: ActionBan, threshold: 60, text: "測試詞 @contact", score: 60, spam: true},
+		{name: "明確詞彙垃圾不降級", action: ActionProgressive, threshold: 40, text: "測試詞", score: 40, spam: true},
+		{name: "僅重複正常文案不加分", action: ActionProgressive, threshold: 60, text: "大家早安"},
+		{name: "重複不能啟用停用分類", action: ActionProgressive, threshold: 40, text: "測試詞", disabled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rules := RuleSet{Version: "repeat-test", Categories: []Category{{
+				ID: "test", Enabled: !tt.disabled, Severity: SeverityCritical, Action: tt.action,
+				Threshold: tt.threshold, Weight: 40, Terms: []string{"測試詞"},
+				RequireAny: []string{SignalRepeatedContent, "telegram_mention"},
+			}}}
+			detector, err := NewDetector(rules, NewNormalizer(nil, 4096), nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseline := detector.Detect(Message{Text: tt.text})
+			signals := []string{SignalRepeatedContent, SignalRepeatedContent}
+			result := detector.Detect(Message{Text: tt.text}, signals...)
+			if result.Spam != tt.spam || result.Score != tt.score || result.Action != baseline.Action || result.Threshold != baseline.Threshold || result.Score != baseline.Score {
+				t.Fatalf("重複訊號不應改變規則判定：%+v，基準=%+v", result, baseline)
+			}
+			if !slices.Contains(result.Signals, SignalRepeatedContent) || signals[0] != SignalRepeatedContent || signals[1] != SignalRepeatedContent {
+				t.Fatalf("應保留稽核線索且不改輸入 slice：%+v，輸入=%v", result, signals)
+			}
+		})
 	}
 }

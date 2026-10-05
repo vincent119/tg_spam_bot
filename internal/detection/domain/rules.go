@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// SignalRepeatedContent 只供 AI 與稽核觀察，不可作為規則處罰依據。
+const SignalRepeatedContent = "repeated_content"
+
 // Validate 拒絕不完整規則及可能由單一模糊詞直接封鎖的危險設定。
 func (r RuleSet) Validate() error {
 	var errs []error
@@ -67,6 +70,10 @@ func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 	// 引用內容只參與詞彙比對，行為訊號必須來自發送者實際輸入。
 	signals := detectSignals(text.Normalized, message.Entities, d.allow, d.deny)
 	signals = unique(append(signals, extraSignals...))
+	// 重複正常文案不代表違規；保留線索，但隔離規則加分與封鎖必要條件。
+	scoringSignals := slices.DeleteFunc(slices.Clone(signals), func(signal string) bool {
+		return signal == SignalRepeatedContent
+	})
 	result := Result{RuleVersion: d.rules.Version, Signals: append([]string(nil), signals...)}
 
 	for _, category := range d.rules.Categories {
@@ -79,12 +86,12 @@ func (d *Detector) Detect(message Message, extraSignals ...string) Result {
 			continue
 		}
 		score := len(matches) * category.Weight
-		for _, signal := range signals {
+		for _, signal := range scoringSignals {
 			if slices.Contains(category.RequireAny, signal) {
 				score += 20
 			}
 		}
-		hasRequired := len(category.RequireAny) == 0 || intersects(category.RequireAny, signals)
+		hasRequired := len(category.RequireAny) == 0 || intersects(category.RequireAny, scoringSignals)
 		spam := score >= category.Threshold
 		if category.Action == ActionBan && !hasRequired {
 			spam = false

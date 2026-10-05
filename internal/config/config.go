@@ -122,6 +122,8 @@ type Config struct {
 		// DB 是 Redis logical database 編號。
 		DB int `mapstructure:"db"`
 	} `mapstructure:"redis"`
+	// Behavior 將重複內容政策與短時間發送頻率分開設定。
+	Behavior BehaviorConfig `mapstructure:"behavior"`
 	// Security 保存不可寫入版本控制的安全設定。
 	Security struct {
 		// ContentHashKey 用於產生不可逆、有金鑰的訊息內容指紋。
@@ -143,6 +145,12 @@ type Config struct {
 	AIDetection AIDetectionConfig `mapstructure:"ai_detection"`
 	// SemanticMemory 控制 pgvector 語意記憶與 embedding 查詢；預設停用。
 	SemanticMemory SemanticMemoryConfig `mapstructure:"semantic_memory"`
+}
+
+// BehaviorConfig 定義同群組、同成員、同文案的重複觀測政策。
+type BehaviorConfig struct {
+	RepeatWindow    time.Duration `json:"repeat_window" yaml:"repeat_window" mapstructure:"repeat_window"`
+	RepeatThreshold int           `json:"repeat_threshold" yaml:"repeat_threshold" mapstructure:"repeat_threshold"`
 }
 
 // LogConfig 描述日誌輸出格式、目的地及檔案輸出相容設定。
@@ -332,6 +340,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("db.conn_max_lifetime", 5*time.Minute)
 	v.SetDefault("db.tls.mode", "verify-full")
 	v.SetDefault("redis.db", 0)
+	v.SetDefault("behavior.repeat_window", 30*time.Minute)
+	v.SetDefault("behavior.repeat_threshold", 3)
 	v.SetDefault("rules.dir", "configs/rules")
 	v.SetDefault("auto_replies.enabled", false)
 	v.SetDefault("ai_detection.enabled", false)
@@ -368,8 +378,9 @@ func envBindings() map[string]string {
 		"db.primary.user": "DB_USER", "db.primary.password": "DB_PASSWORD", "telegram.bot_token": "TELEGRAM_BOT_TOKEN",
 		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.webhook_url": "TELEGRAM_WEBHOOK_URL",
 		"telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
-		"redis.addr":                "REDIS_ADDR",
-		"redis.username":            "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
+		"behavior.repeat_window":    "BEHAVIOR_REPEAT_WINDOW", "behavior.repeat_threshold": "BEHAVIOR_REPEAT_THRESHOLD",
+		"redis.addr":     "REDIS_ADDR",
+		"redis.username": "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
 		"security.content_hash_key": "CONTENT_HASH_KEY", "rules.dir": "RULES_DIR",
 		"auto_replies.enabled": "AUTO_REPLIES_ENABLED", "auto_replies.rules_file": "AUTO_REPLIES_RULES_FILE",
 		"ai_detection.enabled": "AI_DETECTION_ENABLED", "ai_detection.mode": "AI_DETECTION_MODE", "ai_detection.provider": "AI_DETECTION_PROVIDER",
@@ -514,6 +525,12 @@ func (c Config) Validate() error {
 	}
 	if c.Redis.DB < 0 {
 		errs = append(errs, errors.New("redis.db: must not be negative"))
+	}
+	if c.Behavior.RepeatWindow < time.Millisecond || c.Behavior.RepeatWindow > 24*time.Hour {
+		errs = append(errs, errors.New("behavior.repeat_window: 必須介於 1ms 與 24h"))
+	}
+	if c.Behavior.RepeatThreshold < 2 || c.Behavior.RepeatThreshold > 100 {
+		errs = append(errs, errors.New("behavior.repeat_threshold: 必須介於 2 與 100"))
 	}
 	if len(c.Security.ContentHashKey) < 32 {
 		errs = append(errs, errors.New("security.content_hash_key: must contain at least 32 characters"))

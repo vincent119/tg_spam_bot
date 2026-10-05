@@ -1,4 +1,4 @@
-version: "2026-09-30.1"
+version: "2026-10-05.1"
 categories:
   - id: money_laundering_recruitment
     name: 洗錢與收款招攬
@@ -7,6 +7,20 @@ categories:
     threshold: 60
     weight: 40
     enabled: true
-    terms: [洗錢, 收款, 收米, 日賺]
+    # 收益複合詞避免將單獨的洗米、收款或賺錢對話直接視為招攬。
+    # 新詞透過繁體副本比對，避免繁簡別名對同一語意重複加分。
+    terms:
+      - 洗錢
+      - 收款
+      - 收米
+      - 日賺
+      - 洗米
+      - 日掙
+      - 秒結
+      - 收米一天
+      - 收米賺
+      - 收米 賺
+      - 洗米賺
+      - 洗米 賺
     aliases: [洗钱, 收款, 收米, 日赚]
     require_any: []

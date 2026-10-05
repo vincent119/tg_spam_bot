@@ -15,12 +15,14 @@ func TestStoreObserve(t *testing.T) {
 	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
 	store.now = func() time.Time { return now }
 	message := domain.Message{ChatID: 1, UserID: 2}
-	for range 5 {
+	for id := int64(1); id <= 5; id++ {
+		message.MessageID = id
 		_, err := store.Observe(context.Background(), message, "hash")
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	message.MessageID = 6
 	signals, err := store.Observe(context.Background(), message, "hash")
 	if err != nil {
 		t.Fatal(err)
@@ -69,5 +71,156 @@ func TestClaimIsAtomic(t *testing.T) {
 	duplicate, _ := store.Claim(context.Background(), 1)
 	if !claimed || duplicate {
 		t.Fatalf("claimed = %v duplicate = %v", claimed, duplicate)
+	}
+}
+
+func newRepeatTestStore(t *testing.T, capacity int) (*Store, *time.Time) {
+	t.Helper()
+	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	store := NewStore(time.Minute, capacity)
+	store.now = func() time.Time { return now }
+	return store, &now
+}
+
+func observeMemory(t *testing.T, store *Store, message domain.Message, fingerprint string) []string {
+	t.Helper()
+	signals, err := store.Observe(t.Context(), message, fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signals
+}
+
+func TestStoreRepeatWindow(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 100)
+	for id := int64(1); id <= 4; id++ {
+		signals := observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+		if slices.Contains(signals, domain.SignalRepeatedContent) != (id >= 3) || slices.Contains(signals, "high_frequency") {
+			t.Fatalf("第 %d 則訊號=%v", id, signals)
+		}
+		*now = now.Add(9 * time.Minute)
+	}
+}
+
+func TestStoreRepeatIsolation(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{"群組", "成員", "內容"} {
+		t.Run(field, func(t *testing.T) {
+			store, _ := newRepeatTestStore(t, 100)
+			for id := int64(1); id <= 2; id++ {
+				observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+			}
+			message := domain.Message{ChatID: 1, UserID: 2, MessageID: 3}
+			fingerprint := "same"
+			switch field {
+			case "群組":
+				message.ChatID = 9
+			case "成員":
+				message.UserID = 9
+			case "內容":
+				fingerprint = "different"
+			}
+			if signals := observeMemory(t, store, message, fingerprint); slices.Contains(signals, domain.SignalRepeatedContent) {
+				t.Fatalf("不同%s不應合併：%v", field, signals)
+			}
+		})
+	}
+}
+
+func TestStoreRepeatBoundaryAndExpiry(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 100)
+	for id := int64(1); id <= 3; id++ {
+		if signals := observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same"); slices.Contains(signals, domain.SignalRepeatedContent) {
+			t.Fatalf("第 %d 則不應包含已過左界的紀錄：%v", id, signals)
+		}
+		*now = now.Add(15 * time.Minute)
+	}
+	if len(store.repeats[1].items) != 2 {
+		t.Fatal("左界應已移除第一筆")
+	}
+	*now = now.Add(31 * time.Minute)
+	observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: 4}, "same")
+	if len(store.repeats[1].items) != 1 {
+		t.Fatal("過期後應只保留本次觀測")
+	}
+}
+
+func TestStoreRepeatRetryDoesNotRecount(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 100)
+	start := *now
+	message := domain.Message{ChatID: 1, UserID: 2, MessageID: 1}
+	observeMemory(t, store, message, "same")
+	*now = now.Add(9 * time.Minute)
+	for range 3 {
+		if signals := observeMemory(t, store, message, "same"); slices.Contains(signals, domain.SignalRepeatedContent) {
+			t.Fatalf("重送不應累計：%v", signals)
+		}
+	}
+	if state := store.repeats[1]; len(state.items) != 1 || !state.items[0].at.Equal(start) {
+		t.Fatalf("重送不應刷新首次觀測：%+v", state)
+	}
+	message.MessageID = 2
+	observeMemory(t, store, message, "same")
+	message.MessageID = 3
+	for range 2 {
+		if signals := observeMemory(t, store, message, "same"); !slices.Contains(signals, domain.SignalRepeatedContent) {
+			t.Fatalf("第三則重試應保留線索：%v", signals)
+		}
+	}
+	if len(store.repeats[1].items) != 3 {
+		t.Fatal("重送後應只有三則")
+	}
+}
+
+func TestStoreRepeatLateRetry(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 100)
+	message := domain.Message{ChatID: 1, UserID: 2, MessageID: 1}
+	observeMemory(t, store, message, "same")
+	*now = now.Add(31 * time.Minute)
+	if signals := observeMemory(t, store, message, "same"); slices.Contains(signals, domain.SignalRepeatedContent) {
+		t.Fatalf("過期後單則重試不應達門檻：%v", signals)
+	}
+	if state := store.repeats[1]; len(state.items) != 1 || !state.items[0].at.Equal(*now) {
+		t.Fatalf("過期後是新的觀測，非永久去重：%+v", state)
+	}
+}
+
+func TestStoreRepeatCapacityDegradesSafely(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 5)
+	for id := int64(1); id <= 6; id++ {
+		signals := observeMemory(t, store, domain.Message{ChatID: 1, UserID: id, MessageID: id}, "same")
+		if slices.Contains(signals, domain.SignalRepeatedContent) {
+			t.Fatalf("不同成員及容量壓力不應觸發重複：%v", signals)
+		}
+	}
+	deadline := now.Add(30 * time.Minute)
+	for minute := range 30 {
+		for attempt := range 5 {
+			signals := observeMemory(t, store, domain.Message{ChatID: 1, UserID: 6, MessageID: 6}, "same")
+			if slices.Contains(signals, domain.SignalRepeatedContent) {
+				t.Fatalf("冷卻第 %d 分鐘不應產生重複訊號", minute)
+			}
+			if attempt == 4 && !slices.Contains(signals, "high_frequency") {
+				t.Fatal("重複冷卻不應停用既有短窗口頻率")
+			}
+		}
+		if state := store.repeats[1]; !state.cooldownUntil.Equal(deadline) || len(state.items) != 0 {
+			t.Fatalf("持續流量不應續冷卻或保存歷史：%+v", state)
+		}
+		*now = now.Add(time.Minute)
+	}
+	for id := int64(6); id <= 8; id++ {
+		signals := observeMemory(t, store, domain.Message{ChatID: 1, UserID: 6, MessageID: id}, "same")
+		if slices.Contains(signals, domain.SignalRepeatedContent) != (id == 8) {
+			t.Fatalf("冷卻截止後應從第一則重新累計：%v", signals)
+		}
+	}
+	if state := store.repeats[1]; !state.cooldownUntil.IsZero() || len(state.items) != 3 {
+		t.Fatalf("冷卻後狀態=%+v", state)
 	}
 }

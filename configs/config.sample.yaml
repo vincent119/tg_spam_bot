@@ -78,6 +78,13 @@ redis:
   requirepass: "" # ENV: REDIS_REQUIREPASS
   db: 0
 
+# 重複訊號只提供 AI 與稽核線索；發送頻率仍採獨立的 1 分鐘窗口。
+behavior:
+  # 1ms～24h；ENV: BEHAVIOR_REPEAT_WINDOW。
+  repeat_window: 30m
+  # 含當前訊息的唯一訊息數，2～100；ENV: BEHAVIOR_REPEAT_THRESHOLD。
+  repeat_threshold: 3
+
 # 安全設定不得提交真實秘密值。
 security:
   content_hash_key: "" # ENV: CONTENT_HASH_KEY
