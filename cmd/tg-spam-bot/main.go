@@ -26,6 +26,7 @@ import (
 	"github.com/vincent119/tg_spam_bot/internal/detection/rules"
 	"github.com/vincent119/tg_spam_bot/internal/infra/health"
 	"github.com/vincent119/tg_spam_bot/internal/infra/logging"
+	"github.com/vincent119/tg_spam_bot/internal/infra/migration"
 	"github.com/vincent119/zlogger"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -85,30 +86,17 @@ func run(cfg config.Config) error {
 			_ = sqlDB.Close()
 		}
 	}()
-	// 新環境只需預先建立 database；資料表、索引與註解由模型統一建立。
-	if err := pgstore.AutoMigrate(startupCtx, db); err != nil {
+	migrationRunner, err := migration.New(sqlDB, cfg.SemanticMemory.Enabled)
+	if err != nil {
 		return err
 	}
-	if err := pgstore.AutoMigrateRepeatActions(startupCtx, db); err != nil {
-		return err
+	if err := migrationRunner.Verify(startupCtx); err != nil {
+		return fmt.Errorf("資料庫版本驗證失敗: %w", err)
 	}
-	if err := pgstore.AutoMigrateManualFeedback(startupCtx, db); err != nil {
-		return err
-	}
-	if err := pgstore.AutoMigrateManualFeedbackActions(startupCtx, db); err != nil {
-		return err
-	}
-	if cfg.SemanticMemory.Enabled {
-		if err := pgstore.AutoMigrateSemanticMemory(startupCtx, db); err != nil {
-			return err
-		}
-		if err := pgstore.AutoMigrateScopedManualEmbeddings(startupCtx, db); err != nil {
-			return err
-		}
-	}
-	zlogger.InfoContext(startupCtx, "資料庫結構同步完成",
+	zlogger.InfoContext(startupCtx, "資料庫版本驗證完成",
 		zlogger.String("subsystem", "database"),
-		zlogger.String("operation", "auto_migrate"),
+		zlogger.String("operation", "verify_migrations"),
+		zlogger.String("versions", migrationRunner.Versions()),
 	)
 	postgresStore, err := pgstore.NewStore(db)
 	if err != nil {

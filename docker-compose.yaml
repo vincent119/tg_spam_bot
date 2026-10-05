@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: tg_spam
       POSTGRES_USER: tg_spam
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+      DB_APP_USER: ${DB_APP_USER:?請設定 DB_APP_USER}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?請設定 DB_APP_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tg_spam -d tg_spam"]
       interval: 5s
@@ -12,6 +14,7 @@ services:
       retries: 10
     volumes:
       - ./postgres_data:/var/lib/postgresql
+      - ./deployments/postgres/10-app-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     networks: [backend]
@@ -28,16 +31,35 @@ services:
       - ./redis_data:/data
     networks: [backend]
 
+  migrate:
+    image: vincent119/tg_spam_bot:latest
+    entrypoint: ["/app/tg-spam-migrate"]
+    command: ["up"]
+    environment:
+      DB_HOST: postgres
+      DB_NAME: tg_spam
+      DB_USER: tg_spam
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+      SEMANTIC_MEMORY_ENABLED: ${SEMANTIC_MEMORY_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+    networks: [backend]
+
   app:
     image: vincent119/tg_spam_bot:latest
+    build: .
     environment:
       CONFIG_FILE: /app/configs/config.yaml
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?請設定 TELEGRAM_BOT_TOKEN}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?請設定 TELEGRAM_WEBHOOK_SECRET}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       DB_HOST: postgres
-      DB_USER: tg_spam
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+      DB_USER: ${DB_APP_USER:?請設定 DB_APP_USER}
+      DB_PASSWORD: ${DB_APP_PASSWORD:?請設定 DB_APP_PASSWORD}
       REDIS_ADDR: redis:6379
       CONTENT_HASH_KEY: ${CONTENT_HASH_KEY:?請設定 CONTENT_HASH_KEY}
       LOG_OUTPUTS: ${LOG_OUTPUTS:-console,file}
@@ -79,6 +101,8 @@ services:
       SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY: ${SEMANTIC_MEMORY_BEDROCK_SECRET_ACCESS_KEY:-}
       SEMANTIC_MEMORY_BEDROCK_SESSION_TOKEN: ${SEMANTIC_MEMORY_BEDROCK_SESSION_TOKEN:-}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

@@ -1,0 +1,1247 @@
+{
+  "20261005110000": {
+    "violations": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "reason": {
+          "type": "character varying(200)",
+          "not_null": false
+        },
+        "source": {
+          "type": "text",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "event_id": {
+          "type": "text",
+          "not_null": true
+        },
+        "severity": {
+          "type": "text",
+          "not_null": false
+        },
+        "category_id": {
+          "type": "text",
+          "not_null": false
+        },
+        "occurred_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "operator_id": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "invalidated_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "invalidated_by": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "invalidation_reason": {
+          "type": "character varying(200)",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "violations_pkey": "CREATE UNIQUE INDEX violations_pkey ON public.violations USING btree (id)",
+        "idx_violations_source": "CREATE INDEX idx_violations_source ON public.violations USING btree (source)",
+        "idx_violations_event_id": "CREATE UNIQUE INDEX idx_violations_event_id ON public.violations USING btree (event_id)",
+        "idx_violation_member_time": "CREATE INDEX idx_violation_member_time ON public.violations USING btree (chat_id, user_id, occurred_at)",
+        "idx_violations_invalidated_at": "CREATE INDEX idx_violations_invalidated_at ON public.violations USING btree (invalidated_at)"
+      }
+    },
+    "trusted_members": {
+      "columns": {
+        "reason": {
+          "type": "text",
+          "not_null": false
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "trusted_members_pkey": "CREATE UNIQUE INDEX trusted_members_pkey ON public.trusted_members USING btree (chat_id, user_id)"
+      }
+    },
+    "detection_events": {
+      "columns": {
+        "mode": {
+          "type": "text",
+          "not_null": false
+        },
+        "score": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "is_spam": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "matches": {
+          "type": "jsonb",
+          "not_null": false
+        },
+        "signals": {
+          "type": "jsonb",
+          "not_null": false
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "event_id": {
+          "type": "text",
+          "not_null": true
+        },
+        "severity": {
+          "type": "text",
+          "not_null": false
+        },
+        "threshold": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category_id": {
+          "type": "text",
+          "not_null": false
+        },
+        "rule_version": {
+          "type": "text",
+          "not_null": false
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "detection_events_pkey": "CREATE UNIQUE INDEX detection_events_pkey ON public.detection_events USING btree (event_id)",
+        "idx_detection_events_chat_id": "CREATE INDEX idx_detection_events_chat_id ON public.detection_events USING btree (chat_id)",
+        "idx_detection_events_user_id": "CREATE INDEX idx_detection_events_user_id ON public.detection_events USING btree (user_id)",
+        "idx_detection_events_update_id": "CREATE UNIQUE INDEX idx_detection_events_update_id ON public.detection_events USING btree (update_id)",
+        "idx_detection_events_created_at": "CREATE INDEX idx_detection_events_created_at ON public.detection_events USING btree (created_at)"
+      }
+    },
+    "processed_updates": {
+      "columns": {
+        "status": {
+          "type": "text",
+          "not_null": true
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "claimed_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "processed_updates_pkey": "CREATE UNIQUE INDEX processed_updates_pkey ON public.processed_updates USING btree (update_id)"
+      }
+    },
+    "command_executions": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "result": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "source": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "status": {
+          "type": "text",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "command": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "operator_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "target_user_id": {
+          "type": "bigint",
+          "not_null": false
+        },
+        "argument_summary": {
+          "type": "character varying(200)",
+          "not_null": false
+        },
+        "target_message_id": {
+          "type": "bigint",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "idx_command_update": "CREATE UNIQUE INDEX idx_command_update ON public.command_executions USING btree (chat_id, update_id)",
+        "command_executions_pkey": "CREATE UNIQUE INDEX command_executions_pkey ON public.command_executions USING btree (id)",
+        "idx_command_executions_status": "CREATE INDEX idx_command_executions_status ON public.command_executions USING btree (status)",
+        "idx_command_executions_operator_id": "CREATE INDEX idx_command_executions_operator_id ON public.command_executions USING btree (operator_id)",
+        "idx_command_executions_target_user_id": "CREATE INDEX idx_command_executions_target_user_id ON public.command_executions USING btree (target_user_id)"
+      }
+    },
+    "ai_detection_events": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "model": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "status": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "evidence": {
+          "type": "jsonb",
+          "not_null": false
+        },
+        "provider": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "confidence": {
+          "type": "numeric",
+          "not_null": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "reason_code": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "safe_action": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "rule_version": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "prompt_version": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "schema_version": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "confidence_source": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_ai_detection_cache": "CREATE INDEX idx_ai_detection_cache ON public.ai_detection_events USING btree (content_fingerprint, provider, model, prompt_version, rule_version, created_at)",
+        "idx_ai_detection_update": "CREATE UNIQUE INDEX idx_ai_detection_update ON public.ai_detection_events USING btree (chat_id, update_id)",
+        "ai_detection_events_pkey": "CREATE UNIQUE INDEX ai_detection_events_pkey ON public.ai_detection_events USING btree (id)",
+        "idx_ai_detection_events_status": "CREATE INDEX idx_ai_detection_events_status ON public.ai_detection_events USING btree (status)",
+        "idx_ai_detection_events_chat_id": "CREATE INDEX idx_ai_detection_events_chat_id ON public.ai_detection_events USING btree (chat_id)",
+        "idx_ai_detection_events_user_id": "CREATE INDEX idx_ai_detection_events_user_id ON public.ai_detection_events USING btree (user_id)",
+        "idx_ai_detection_events_created_at": "CREATE INDEX idx_ai_detection_events_created_at ON public.ai_detection_events USING btree (created_at)"
+      }
+    },
+    "enforcement_actions": {
+      "columns": {
+        "kind": {
+          "type": "text",
+          "not_null": false
+        },
+        "status": {
+          "type": "text",
+          "not_null": false
+        },
+        "ended_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "event_id": {
+          "type": "text",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "action_key": {
+          "type": "text",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "text",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "text",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "enforcement_actions_pkey": "CREATE UNIQUE INDEX enforcement_actions_pkey ON public.enforcement_actions USING btree (action_key)",
+        "idx_enforcement_actions_event_id": "CREATE INDEX idx_enforcement_actions_event_id ON public.enforcement_actions USING btree (event_id)"
+      }
+    },
+    "auto_reply_executions": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "status": {
+          "type": "text",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "rule_id": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "idx_auto_reply_update": "CREATE UNIQUE INDEX idx_auto_reply_update ON public.auto_reply_executions USING btree (chat_id, update_id)",
+        "auto_reply_executions_pkey": "CREATE UNIQUE INDEX auto_reply_executions_pkey ON public.auto_reply_executions USING btree (id)",
+        "idx_auto_reply_executions_status": "CREATE INDEX idx_auto_reply_executions_status ON public.auto_reply_executions USING btree (status)",
+        "idx_auto_reply_executions_rule_id": "CREATE INDEX idx_auto_reply_executions_rule_id ON public.auto_reply_executions USING btree (rule_id)",
+        "idx_auto_reply_executions_user_id": "CREATE INDEX idx_auto_reply_executions_user_id ON public.auto_reply_executions USING btree (user_id)"
+      }
+    },
+    "semantic_manual_samples": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "source": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "status": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "embedded_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "operator_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "target_user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_manual_sample_message": "CREATE UNIQUE INDEX idx_manual_sample_message ON public.semantic_manual_samples USING btree (chat_id, message_id)",
+        "semantic_manual_samples_pkey": "CREATE UNIQUE INDEX semantic_manual_samples_pkey ON public.semantic_manual_samples USING btree (id)",
+        "idx_semantic_manual_samples_label": "CREATE INDEX idx_semantic_manual_samples_label ON public.semantic_manual_samples USING btree (label)",
+        "idx_semantic_manual_samples_status": "CREATE INDEX idx_semantic_manual_samples_status ON public.semantic_manual_samples USING btree (status)",
+        "idx_semantic_manual_samples_chat_id": "CREATE INDEX idx_semantic_manual_samples_chat_id ON public.semantic_manual_samples USING btree (chat_id)",
+        "idx_semantic_manual_samples_category": "CREATE INDEX idx_semantic_manual_samples_category ON public.semantic_manual_samples USING btree (category)",
+        "idx_semantic_manual_samples_created_at": "CREATE INDEX idx_semantic_manual_samples_created_at ON public.semantic_manual_samples USING btree (created_at)",
+        "idx_semantic_manual_samples_operator_id": "CREATE INDEX idx_semantic_manual_samples_operator_id ON public.semantic_manual_samples USING btree (operator_id)",
+        "idx_semantic_manual_samples_target_user_id": "CREATE INDEX idx_semantic_manual_samples_target_user_id ON public.semantic_manual_samples USING btree (target_user_id)",
+        "idx_semantic_manual_samples_content_fingerprint": "CREATE INDEX idx_semantic_manual_samples_content_fingerprint ON public.semantic_manual_samples USING btree (content_fingerprint)"
+      }
+    }
+  },
+  "20261005110100": {
+    "message_embeddings": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "vector": {
+          "type": "vector",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "dimensions": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "expires_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "reason_code": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "embedding_model": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "embedding_version": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "embedding_provider": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "message_embeddings_pkey": "CREATE UNIQUE INDEX message_embeddings_pkey ON public.message_embeddings USING btree (id)",
+        "idx_message_embedding_scope": "CREATE INDEX idx_message_embedding_scope ON public.message_embeddings USING btree (embedding_provider, embedding_model, embedding_version, dimensions)",
+        "idx_message_embedding_unique": "CREATE UNIQUE INDEX idx_message_embedding_unique ON public.message_embeddings USING btree (content_fingerprint, embedding_provider, embedding_model, embedding_version, dimensions)",
+        "idx_message_embeddings_label": "CREATE INDEX idx_message_embeddings_label ON public.message_embeddings USING btree (label)",
+        "idx_message_embeddings_category": "CREATE INDEX idx_message_embeddings_category ON public.message_embeddings USING btree (category)",
+        "idx_message_embeddings_created_at": "CREATE INDEX idx_message_embeddings_created_at ON public.message_embeddings USING btree (created_at)",
+        "idx_message_embeddings_expires_at": "CREATE INDEX idx_message_embeddings_expires_at ON public.message_embeddings USING btree (expires_at)",
+        "idx_message_embeddings_content_fingerprint": "CREATE INDEX idx_message_embeddings_content_fingerprint ON public.message_embeddings USING btree (content_fingerprint)"
+      }
+    },
+    "semantic_blacklist_examples": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "source": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "vector": {
+          "type": "vector",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "dimensions": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category_id": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "embedding_model": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "embedding_version": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "embedding_provider": {
+          "type": "character varying(64)",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_blacklist_example_scope": "CREATE INDEX idx_blacklist_example_scope ON public.semantic_blacklist_examples USING btree (embedding_provider, embedding_model, embedding_version, dimensions)",
+        "semantic_blacklist_examples_pkey": "CREATE UNIQUE INDEX semantic_blacklist_examples_pkey ON public.semantic_blacklist_examples USING btree (id)",
+        "idx_semantic_blacklist_examples_category_id": "CREATE INDEX idx_semantic_blacklist_examples_category_id ON public.semantic_blacklist_examples USING btree (category_id)"
+      }
+    },
+    "semantic_blacklist_categories": {
+      "columns": {
+        "id": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "name": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "description": {
+          "type": "character varying(500)",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "semantic_blacklist_categories_pkey": "CREATE UNIQUE INDEX semantic_blacklist_categories_pkey ON public.semantic_blacklist_categories USING btree (id)",
+        "idx_semantic_blacklist_categories_enabled": "CREATE INDEX idx_semantic_blacklist_categories_enabled ON public.semantic_blacklist_categories USING btree (enabled)"
+      }
+    }
+  },
+  "20261005111400": {
+    "manual_feedback_currents": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "reason": {
+          "type": "character varying(200)",
+          "not_null": false
+        },
+        "source": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "revision": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "operator_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "target_user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "embedding_status": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "command_update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        },
+        "embedding_error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        }
+      },
+      "indexes": {
+        "idx_manual_feedback_message": "CREATE UNIQUE INDEX idx_manual_feedback_message ON public.manual_feedback_currents USING btree (chat_id, message_id)",
+        "manual_feedback_currents_pkey": "CREATE UNIQUE INDEX manual_feedback_currents_pkey ON public.manual_feedback_currents USING btree (id)",
+        "idx_manual_feedback_fingerprint": "CREATE INDEX idx_manual_feedback_fingerprint ON public.manual_feedback_currents USING btree (chat_id, content_fingerprint)"
+      }
+    },
+    "manual_feedback_revisions": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "reason": {
+          "type": "character varying(200)",
+          "not_null": false
+        },
+        "source": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": true
+        },
+        "revision": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "operator_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "previous_label": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "target_user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "command_update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_manual_feedback_command": "CREATE UNIQUE INDEX idx_manual_feedback_command ON public.manual_feedback_revisions USING btree (chat_id, command_update_id)",
+        "idx_manual_feedback_revision": "CREATE UNIQUE INDEX idx_manual_feedback_revision ON public.manual_feedback_revisions USING btree (chat_id, message_id, revision)",
+        "manual_feedback_revisions_pkey": "CREATE UNIQUE INDEX manual_feedback_revisions_pkey ON public.manual_feedback_revisions USING btree (id)"
+      }
+    },
+    "manual_feedback_epoch_rows": {
+      "columns": {
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "version": {
+          "type": "bigint",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "manual_feedback_epoch_rows_pkey": "CREATE UNIQUE INDEX manual_feedback_epoch_rows_pkey ON public.manual_feedback_epoch_rows USING btree (chat_id)"
+      }
+    }
+  },
+  "20261005111500": {
+    "scoped_manual_feedback_embeddings": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "vector": {
+          "type": "vector",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "revision": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "dimensions": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "expires_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "embedding_model": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "embedding_version": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "embedding_provider": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_scoped_feedback_embedding": "CREATE UNIQUE INDEX idx_scoped_feedback_embedding ON public.scoped_manual_feedback_embeddings USING btree (chat_id, message_id, revision, embedding_provider, embedding_model, embedding_version, dimensions)",
+        "idx_scoped_feedback_chat_fingerprint": "CREATE INDEX idx_scoped_feedback_chat_fingerprint ON public.scoped_manual_feedback_embeddings USING btree (chat_id, content_fingerprint)",
+        "scoped_manual_feedback_embeddings_pkey": "CREATE UNIQUE INDEX scoped_manual_feedback_embeddings_pkey ON public.scoped_manual_feedback_embeddings USING btree (id)",
+        "idx_scoped_manual_feedback_embeddings_expires_at": "CREATE INDEX idx_scoped_manual_feedback_embeddings_expires_at ON public.scoped_manual_feedback_embeddings USING btree (expires_at)"
+      }
+    }
+  },
+  "20261005111600": {
+    "manual_feedback_actions": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "kind": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "status": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "ended_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "target_user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "command_update_id": {
+          "type": "bigint",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_manual_feedback_action": "CREATE UNIQUE INDEX idx_manual_feedback_action ON public.manual_feedback_actions USING btree (chat_id, command_update_id, kind)",
+        "manual_feedback_actions_pkey": "CREATE UNIQUE INDEX manual_feedback_actions_pkey ON public.manual_feedback_actions USING btree (id)"
+      }
+    }
+  },
+  "20261005111700": {
+    "repeat_action_steps": {
+      "columns": {
+        "kind": {
+          "type": "character varying(16)",
+          "not_null": true
+        },
+        "status": {
+          "type": "character varying(16)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "ended_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": true
+        },
+        "action_key": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "claimed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "lease_token": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "attempt_count": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "first_event_id": {
+          "type": "character varying(128)",
+          "not_null": true
+        },
+        "lease_expires_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "had_unknown_outcome": {
+          "type": "boolean",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_repeat_delete_target": "CREATE UNIQUE INDEX idx_repeat_delete_target ON public.repeat_action_steps USING btree (chat_id, message_id) WHERE ((kind)::text = 'delete'::text)",
+        "repeat_action_steps_pkey": "CREATE UNIQUE INDEX repeat_action_steps_pkey ON public.repeat_action_steps USING btree (action_key)"
+      }
+    },
+    "repeat_action_executions": {
+      "columns": {
+        "mode": {
+          "type": "character varying(16)",
+          "not_null": true
+        },
+        "count": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "steps": {
+          "type": "jsonb",
+          "not_null": true
+        },
+        "action": {
+          "type": "character varying(16)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "event_id": {
+          "type": "character varying(128)",
+          "not_null": true
+        },
+        "truncated": {
+          "type": "boolean",
+          "not_null": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "window_millis": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "policy_version": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_repeat_execution_scope": "CREATE INDEX idx_repeat_execution_scope ON public.repeat_action_executions USING btree (chat_id, user_id)",
+        "repeat_action_executions_pkey": "CREATE UNIQUE INDEX repeat_action_executions_pkey ON public.repeat_action_executions USING btree (event_id)"
+      }
+    }
+  },
+  "20261005111800": {
+    "ai_detection_events": {
+      "columns": {
+        "id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "label": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "model": {
+          "type": "character varying(200)",
+          "not_null": true
+        },
+        "status": {
+          "type": "character varying(32)",
+          "not_null": true
+        },
+        "chat_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "user_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "category": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "evidence": {
+          "type": "jsonb",
+          "not_null": false
+        },
+        "provider": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "retryable": {
+          "type": "boolean",
+          "not_null": false
+        },
+        "update_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "confidence": {
+          "type": "numeric",
+          "not_null": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        "error_code": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "error_text": {
+          "type": "character varying(500)",
+          "not_null": false
+        },
+        "message_id": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "reason_code": {
+          "type": "character varying(100)",
+          "not_null": false
+        },
+        "safe_action": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        "rule_version": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "feedback_epoch": {
+          "type": "bigint",
+          "not_null": true
+        },
+        "prompt_version": {
+          "type": "character varying(64)",
+          "not_null": true
+        },
+        "schema_version": {
+          "type": "character varying(64)",
+          "not_null": false
+        },
+        "confidence_source": {
+          "type": "character varying(32)",
+          "not_null": false
+        },
+        "content_fingerprint": {
+          "type": "text",
+          "not_null": true
+        }
+      },
+      "indexes": {
+        "idx_ai_feedback_cache": "CREATE INDEX idx_ai_feedback_cache ON public.ai_detection_events USING btree (chat_id, feedback_epoch, content_fingerprint, provider, model, prompt_version, rule_version, created_at DESC) WHERE ((status)::text = 'completed'::text)",
+        "idx_ai_detection_cache": "CREATE INDEX idx_ai_detection_cache ON public.ai_detection_events USING btree (content_fingerprint, provider, model, prompt_version, rule_version, created_at)",
+        "idx_ai_detection_update": "CREATE UNIQUE INDEX idx_ai_detection_update ON public.ai_detection_events USING btree (chat_id, update_id)",
+        "ai_detection_events_pkey": "CREATE UNIQUE INDEX ai_detection_events_pkey ON public.ai_detection_events USING btree (id)",
+        "idx_ai_detection_events_status": "CREATE INDEX idx_ai_detection_events_status ON public.ai_detection_events USING btree (status)",
+        "idx_ai_detection_events_chat_id": "CREATE INDEX idx_ai_detection_events_chat_id ON public.ai_detection_events USING btree (chat_id)",
+        "idx_ai_detection_events_user_id": "CREATE INDEX idx_ai_detection_events_user_id ON public.ai_detection_events USING btree (user_id)",
+        "idx_ai_detection_events_created_at": "CREATE INDEX idx_ai_detection_events_created_at ON public.ai_detection_events USING btree (created_at)"
+      }
+    }
+  },
+  "20261005133800": {
+    "detection_events": {
+      "columns": {
+        "mode": { "type": "text", "not_null": false },
+        "score": { "type": "bigint", "not_null": false },
+        "chat_id": { "type": "bigint", "not_null": true },
+        "is_spam": { "type": "boolean", "not_null": false },
+        "matches": { "type": "jsonb", "not_null": false },
+        "signals": { "type": "jsonb", "not_null": false },
+        "user_id": { "type": "bigint", "not_null": true },
+        "event_id": { "type": "text", "not_null": true },
+        "severity": { "type": "text", "not_null": false },
+        "threshold": { "type": "bigint", "not_null": false },
+        "update_id": { "type": "bigint", "not_null": true },
+        "created_at": { "type": "timestamp with time zone", "not_null": true },
+        "message_id": { "type": "bigint", "not_null": true },
+        "category_id": { "type": "text", "not_null": false },
+        "rule_version": { "type": "text", "not_null": false },
+        "content_fingerprint": { "type": "text", "not_null": true },
+        "username": { "type": "text", "not_null": false },
+        "first_name": { "type": "text", "not_null": false },
+        "message_sent_at": { "type": "timestamp with time zone", "not_null": false }
+      },
+      "indexes": {
+        "detection_events_pkey": "CREATE UNIQUE INDEX detection_events_pkey ON public.detection_events USING btree (event_id)",
+        "idx_detection_events_chat_id": "CREATE INDEX idx_detection_events_chat_id ON public.detection_events USING btree (chat_id)",
+        "idx_detection_events_user_id": "CREATE INDEX idx_detection_events_user_id ON public.detection_events USING btree (user_id)",
+        "idx_detection_events_update_id": "CREATE UNIQUE INDEX idx_detection_events_update_id ON public.detection_events USING btree (update_id)",
+        "idx_detection_events_created_at": "CREATE INDEX idx_detection_events_created_at ON public.detection_events USING btree (created_at)"
+      }
+    }
+  }
+}

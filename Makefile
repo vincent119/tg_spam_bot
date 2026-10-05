@@ -4,11 +4,21 @@ DOCKER_IMAGE ?= $(DOCKER_REGISTRY)/$(DOCKER_USERNAME)/tg_spam_bot
 DOCKER_TAG ?= latest
 CONFIG_FILE ?= configs/config.yaml
 
-.PHONY: fmt lint vet test cover bench tidy run docker-login docker-build docker-push docker-publish
+.PHONY: fmt lint vet test cover bench tidy run migrate-status migrate-verify migrate-up docker-login docker-build docker-push docker-publish
 
 # run 使用結構化範例設定啟動服務；秘密值仍須由環境變數提供。
 run:
 	CONFIG_FILE=$(CONFIG_FILE) go run ./cmd/tg-spam-bot
+
+# migration 命令僅使用已匯出的 DATABASE_URL 或 DB_* 環境變數。
+migrate-status:
+	go run ./cmd/tg-spam-migrate status
+
+migrate-verify:
+	go run ./cmd/tg-spam-migrate verify
+
+migrate-up:
+	go run ./cmd/tg-spam-migrate up
 
 fmt:
 	gofmt -s -w .
