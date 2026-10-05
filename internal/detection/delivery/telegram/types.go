@@ -98,6 +98,9 @@ func (u Update) Command(botUsername string) (commanddomain.Command, CommandDispo
 		Args:      strings.TrimSpace(u.Message.Text[byteEnd:]),
 	}
 	if reply := u.Message.ReplyToMessage; reply != nil {
+		if reply.Chat.ID != u.Message.Chat.ID {
+			return commanddomain.Command{}, CommandIgnore
+		}
 		command.TargetMessage = reply.MessageID
 		if reply.From != nil {
 			command.Target = &commanddomain.Target{ID: reply.From.ID, IsBot: reply.From.IsBot, Username: reply.From.Username}

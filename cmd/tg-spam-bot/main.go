@@ -89,8 +89,20 @@ func run(cfg config.Config) error {
 	if err := pgstore.AutoMigrate(startupCtx, db); err != nil {
 		return err
 	}
+	if err := pgstore.AutoMigrateRepeatActions(startupCtx, db); err != nil {
+		return err
+	}
+	if err := pgstore.AutoMigrateManualFeedback(startupCtx, db); err != nil {
+		return err
+	}
+	if err := pgstore.AutoMigrateManualFeedbackActions(startupCtx, db); err != nil {
+		return err
+	}
 	if cfg.SemanticMemory.Enabled {
 		if err := pgstore.AutoMigrateSemanticMemory(startupCtx, db); err != nil {
+			return err
+		}
+		if err := pgstore.AutoMigrateScopedManualEmbeddings(startupCtx, db); err != nil {
 			return err
 		}
 	}
@@ -148,16 +160,35 @@ func run(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	processorOptions := []application.ProcessorOption{}
+	processorOptions := []application.ProcessorOption{
+		application.WithRepeatEnforcement(application.RepeatAction(cfg.Behavior.RepeatAction), cfg.Behavior.RepeatThreshold, postgresStore, postgresStore, telegram),
+	}
 	if aiComponents.Processor != nil {
 		processorOptions = append(processorOptions, application.WithAIDetectionProcessor(aiComponents.Processor))
 	}
 	processor := application.NewProcessor(detector, postgresStore, exemptions, behaviors, postgresStore, telegram, application.Mode(cfg.App.Mode), []byte(cfg.Security.ContentHashKey), processorOptions...)
+	preview, err := application.NewPreviewService(detector, behaviors, exemptions, application.PreviewConfig{
+		Mode: application.Mode(cfg.App.Mode), RepeatAction: application.RepeatAction(cfg.Behavior.RepeatAction),
+		RepeatThreshold: cfg.Behavior.RepeatThreshold, HashKey: []byte(cfg.Security.ContentHashKey),
+		AIEnabled: cfg.AIDetection.Enabled,
+	}, application.WithPreviewHistory(postgresStore))
+	if err != nil {
+		return err
+	}
 	commandLimiter, err := commandredis.NewLimiter(redisClient, 5, 30*time.Second)
 	if err != nil {
 		return err
 	}
-	commandOptions := []commandapp.Option{commandapp.WithDuplicateMessageFinder(postgresStore)}
+	commandOptions := []commandapp.Option{
+		commandapp.WithDuplicateMessageFinder(postgresStore),
+		commandapp.WithDetectionPreview(preview),
+	}
+	feedbackService, err := application.NewManualFeedbackService(postgresStore, aiComponents.Embeddings)
+	if err != nil {
+		return err
+	}
+	commandOptions = append(commandOptions, commandapp.WithManualFeedback(feedbackService, postgresStore, postgresStore,
+		[]byte(cfg.Security.ContentHashKey), cfg.AIDetection.MaxTextChars, cfg.SemanticMemory.CacheTTL))
 	if aiComponents.FeedSpamService != nil {
 		commandOptions = append(commandOptions, commandapp.WithFeedSpamSubmitter(aiComponents.FeedSpamService, []byte(cfg.Security.ContentHashKey), cfg.AIDetection.MaxTextChars, cfg.SemanticMemory.CacheTTL))
 	}

@@ -24,12 +24,43 @@ type Handler struct {
 	store                ExecutionStore
 	limiter              Limiter
 	feedSpam             FeedSpamSubmitter
+	feedback             ManualFeedbackSubmitter
+	feedbackTargets      FeedbackTargetFinder
+	feedbackActions      FeedbackActionStore
+	preview              DetectionPreviewer
 	duplicates           DuplicateMessageFinder
 	botID                int64
 	hashKey              []byte
 	feedSpamMaxTextRunes int
 	feedSpamEmbeddingTTL time.Duration
 	clock                Clock
+}
+
+// WithDetectionPreview 啟用管理員回覆訊息的只讀判定預覽。
+func WithDetectionPreview(previewer DetectionPreviewer) Option {
+	return func(handler *Handler) error {
+		if previewer == nil {
+			return errors.New("detection previewer is required")
+		}
+		handler.preview = previewer
+		return nil
+	}
+}
+
+// WithManualFeedback 啟用可修正人工標記；處置計畫與已刪目標查證均為必要依賴。
+func WithManualFeedback(submitter ManualFeedbackSubmitter, targets FeedbackTargetFinder, actions FeedbackActionStore, hashKey []byte, maxTextRunes int, embeddingTTL time.Duration) Option {
+	return func(handler *Handler) error {
+		if submitter == nil || targets == nil || actions == nil || len(hashKey) == 0 || maxTextRunes <= 0 || embeddingTTL <= 0 {
+			return errors.New("manual feedback dependencies and limits are required")
+		}
+		handler.feedback = submitter
+		handler.feedbackTargets = targets
+		handler.feedbackActions = actions
+		handler.hashKey = append([]byte(nil), hashKey...)
+		handler.feedSpamMaxTextRunes = maxTextRunes
+		handler.feedSpamEmbeddingTTL = embeddingTTL
+		return nil
+	}
 }
 
 // WithDuplicateMessageFinder 啟用 `/purge`，只允許清除同一成員發送的相同內容。
@@ -144,10 +175,10 @@ func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
 	if err := validateAdminArgs(command); err != nil {
 		return h.finishWithReply(ctx, command, "invalid", err.Error(), err.Error())
 	}
-	if err := h.resolveTarget(&command, definition); err != nil {
+	if err := h.resolveTarget(ctx, &command, definition); err != nil {
 		return h.finishWithReply(ctx, command, "invalid", err.Error(), "")
 	}
-	if command.Target != nil {
+	if command.Target != nil && command.Name != domain.NameCheck && command.Name != domain.NameHam {
 		if err := h.protectTarget(ctx, command); err != nil {
 			return h.finishWithReply(ctx, command, "denied", err.Error(), "")
 		}
@@ -158,7 +189,7 @@ func (h *Handler) Handle(ctx context.Context, command domain.Command) error {
 func validateAdminArgs(command domain.Command) error {
 	args := strings.TrimSpace(command.Args)
 	switch command.Name {
-	case domain.NameWarnings, domain.NameDelete, domain.NamePurge, domain.NameUnmute:
+	case domain.NameWarnings, domain.NameDelete, domain.NamePurge, domain.NameUnmute, domain.NameCheck:
 		if args != "" {
 			definition, _ := domain.LookupDefinition(command.Name)
 			return fmt.Errorf("用法：%s。", definition.Usage)
@@ -170,6 +201,21 @@ func validateAdminArgs(command domain.Command) error {
 	case domain.NameFeedSpam:
 		if _, err := domain.ParseFeedSpamCategory(args); err != nil {
 			return err
+		}
+	case domain.NameSpam:
+		if _, err := domain.ParseSpamArgs(args); err != nil {
+			return err
+		}
+	case domain.NameHam:
+		parsed, err := domain.ParseHamArgs(args)
+		if err != nil {
+			return err
+		}
+		if command.Target == nil && parsed.EventID == "" {
+			return errors.New("請回覆目標訊息，或提供 event:tg:<update_id>")
+		}
+		if command.Target != nil && parsed.EventID != "" {
+			return errors.New("回覆訊息時不得同時提供稽核事件 ID")
 		}
 	}
 	return nil
@@ -311,12 +357,35 @@ func (h *Handler) handleAdmin(ctx context.Context, command domain.Command) error
 			return h.fail(ctx, command, "提交漏網樣本失敗", err)
 		}
 		return h.finishWithReply(ctx, command, "completed", "已加入待訓練樣本。", "")
+	case domain.NameSpam, domain.NameHam:
+		return h.handleManualFeedback(ctx, command, now)
+	case domain.NameCheck:
+		return h.handlePreview(ctx, command, now)
 	default:
 		return h.finishWithReply(ctx, command, "ignored", "未知指令，請使用 /help 查看說明。", "")
 	}
 }
 
-func (h *Handler) resolveTarget(command *domain.Command, definition domain.Definition) error {
+func (h *Handler) resolveTarget(ctx context.Context, command *domain.Command, definition domain.Definition) error {
+	if command.Name == domain.NameHam && command.Target == nil {
+		if h.feedbackTargets == nil {
+			return errors.New("人工回饋功能尚未啟用")
+		}
+		parsed, err := domain.ParseHamArgs(command.Args)
+		if err != nil {
+			return err
+		}
+		target, found, err := h.feedbackTargets.FindFeedbackTarget(ctx, command.ChatID, parsed.EventID)
+		if err != nil {
+			return errors.New("暫時無法查證本群稽核事件")
+		}
+		if !found {
+			return errors.New("找不到本群可查證的稽核事件")
+		}
+		command.Target = &domain.Target{ID: target.UserID}
+		command.TargetMessage = target.MessageID
+		command.TargetFingerprint = target.ContentFingerprint
+	}
 	if command.Name == domain.NameUnban && command.Target == nil {
 		id, err := domain.ParseUserID(command.Args)
 		if err != nil {

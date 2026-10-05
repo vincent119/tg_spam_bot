@@ -20,6 +20,7 @@ type commandTelegramRecorder struct {
 	admins   map[int64]bool
 	messages []string
 	bans     int
+	deletes  int
 }
 
 func (r *commandTelegramRecorder) IsAdmin(_ context.Context, _ int64, userID int64) (bool, error) {
@@ -30,7 +31,11 @@ func (r *commandTelegramRecorder) SendMessage(_ context.Context, _ int64, _ int6
 	r.messages = append(r.messages, text)
 	return nil
 }
-func (*commandTelegramRecorder) DeleteMessage(context.Context, int64, int64) error    { return nil }
+
+func (r *commandTelegramRecorder) DeleteMessage(context.Context, int64, int64) error {
+	r.deletes++
+	return nil
+}
 func (*commandTelegramRecorder) DeleteMessages(context.Context, int64, []int64) error { return nil }
 func (*commandTelegramRecorder) RestrictMember(context.Context, int64, int64, time.Time) error {
 	return nil
@@ -138,5 +143,81 @@ func TestWebhookCommandEndToEnd(t *testing.T) {
 	}
 	if detection.calls != 1 {
 		t.Fatalf("一般訊息處理次數=%d，預期 1", detection.calls)
+	}
+}
+
+type commandFeedbackRecorder struct {
+	inputs []detectionapp.ManualFeedbackInput
+}
+
+func (r *commandFeedbackRecorder) Submit(_ context.Context, input detectionapp.ManualFeedbackInput) (detectionapp.ManualFeedbackResult, error) {
+	r.inputs = append(r.inputs, input)
+	return detectionapp.ManualFeedbackResult{Saved: true, EmbeddingStatus: detectionapp.ManualFeedbackEmbeddingDisabled}, nil
+}
+
+type commandFeedbackTargetRecorder struct{}
+
+func (commandFeedbackTargetRecorder) FindFeedbackTarget(context.Context, int64, string) (commandapp.FeedbackTarget, bool, error) {
+	return commandapp.FeedbackTarget{}, false, nil
+}
+
+type commandFeedbackActionRecorder struct{ plans int }
+
+func (r *commandFeedbackActionRecorder) PlanFeedbackActions(context.Context, commanddomain.Command, []commandapp.FeedbackActionKind) error {
+	r.plans++
+	return nil
+}
+
+func (*commandFeedbackActionRecorder) CompleteFeedbackAction(context.Context, commanddomain.Command, commandapp.FeedbackActionKind, bool, bool, string) error {
+	return nil
+}
+
+type commandPreviewRecorder struct{ calls int }
+
+func (r *commandPreviewRecorder) Preview(context.Context, domain.Message) (detectionapp.PreviewResult, error) {
+	r.calls++
+	return detectionapp.PreviewResult{Rule: domain.Result{RuleVersion: "test", Score: 1, Threshold: 3}, AIStatus: "disabled", Historical: detectionapp.PreviewHistory{Status: "not_observed"}}, nil
+}
+
+func TestWebhookFeedbackAndPreviewEndToEnd(t *testing.T) {
+	t.Parallel()
+	telegram := &commandTelegramRecorder{admins: map[int64]bool{1: true}}
+	store := &commandStore{results: make(map[int64]commanddomain.Result)}
+	feedback := &commandFeedbackRecorder{}
+	actions := &commandFeedbackActionRecorder{}
+	preview := &commandPreviewRecorder{}
+	commands, err := commandapp.NewHandler(telegram, store, store, allowAllLimiter{}, 99,
+		commandapp.WithManualFeedback(feedback, commandFeedbackTargetRecorder{}, actions, []byte("01234567890123456789012345678901"), 800, time.Hour),
+		commandapp.WithDetectionPreview(preview))
+	if err != nil {
+		t.Fatal(err)
+	}
+	detection := &detectionCounter{}
+	webhook, err := delivery.NewWebhook("secret", 4096, detection,
+		delivery.WithAllowedChatIDs([]int64{-1001}),
+		delivery.WithCommandProcessor(commands, "liyu_spam_bot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []string{
+		`{"update_id":101,"message":{"message_id":20,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":1},"text":"/spam agent_recruiting","entities":[{"type":"bot_command","offset":0,"length":5}],"reply_to_message":{"message_id":9,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":3},"text":"來收米 日掙1W"}}}`,
+		`{"update_id":101,"message":{"message_id":20,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":1},"text":"/spam agent_recruiting","entities":[{"type":"bot_command","offset":0,"length":5}],"reply_to_message":{"message_id":9,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":3},"text":"來收米 日掙1W"}}}`,
+		`{"update_id":102,"message":{"message_id":21,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":1},"text":"/ham 誤判","entities":[{"type":"bot_command","offset":0,"length":4}],"reply_to_message":{"message_id":9,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":3},"text":"來收米 日掙1W"}}}`,
+		`{"update_id":103,"message":{"message_id":22,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":1},"text":"/check","entities":[{"type":"bot_command","offset":0,"length":6}],"reply_to_message":{"message_id":9,"date":1,"chat":{"id":-1001,"type":"supergroup"},"from":{"id":3},"text":"來收米 日掙1W"}}}`,
+	}
+	for _, body := range requests {
+		req := httptest.NewRequest(http.MethodPost, "/telegram/webhook", strings.NewReader(body))
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+		response := httptest.NewRecorder()
+		webhook.ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	if len(feedback.inputs) != 2 || actions.plans != 1 || telegram.deletes != 1 || telegram.bans != 0 || preview.calls != 1 || detection.calls != 0 {
+		t.Fatalf("feedback=%d plans=%d deletes=%d bans=%d preview=%d detection=%d", len(feedback.inputs), actions.plans, telegram.deletes, telegram.bans, preview.calls, detection.calls)
+	}
+	if feedback.inputs[0].Feedback.Label != domain.AILabelSpam || feedback.inputs[1].Feedback.Label != domain.AILabelHam {
+		t.Fatalf("feedback labels=%+v", feedback.inputs)
 	}
 }

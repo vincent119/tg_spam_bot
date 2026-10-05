@@ -115,6 +115,12 @@ func TestStoreIntegration(t *testing.T) {
 	if err := store.RecordDetection(ctx, observeEvent); err != nil {
 		t.Fatal(err)
 	}
+	if historical, found, err := store.FindHistoricalDetection(ctx, chatID, 600); err != nil || !found || historical.RuleVersion != "it" || historical.Mode != application.ModeObserve {
+		t.Fatalf("FindHistoricalDetection()=%+v found=%v err=%v", historical, found, err)
+	}
+	if _, found, err := store.FindHistoricalDetection(ctx, chatID+1, 600); err != nil || found {
+		t.Fatalf("跨群 FindHistoricalDetection() found=%v err=%v", found, err)
+	}
 
 	manualSample, created, err := store.CreateManualSample(ctx, application.ManualSample{
 		ChatID: chatID, MessageID: 900, TargetUserID: userID, OperatorID: seed + 3,
@@ -187,13 +193,23 @@ func TestStoreIntegration(t *testing.T) {
 		t.Fatalf("重複 ClaimAIDetection()=%+v, %v", aiClaim, err)
 	}
 	cachedAI, found, err := store.FindCachedAIDetection(ctx, application.AIDetectionCacheKey{
+		ChatID:             chatID,
 		ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "classifier",
 		PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC(),
 	})
 	if err != nil || !found || cachedAI.Result.ReasonCode != "commercial_solicitation" {
 		t.Fatalf("FindCachedAIDetection()=%+v found=%v err=%v", cachedAI, found, err)
 	}
+	for _, key := range []application.AIDetectionCacheKey{
+		{ChatID: chatID + 1, ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "classifier", PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC()},
+		{ChatID: chatID, FeedbackEpoch: 1, ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "classifier", PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC()},
+	} {
+		if _, found, err := store.FindCachedAIDetection(ctx, key); err != nil || found {
+			t.Fatalf("跨群或舊版本快取不可命中：key=%+v found=%v err=%v", key, found, err)
+		}
+	}
 	_, found, err = store.FindCachedAIDetection(ctx, application.AIDetectionCacheKey{
+		ChatID:             chatID,
 		ContentFingerprint: "ai-fingerprint", Provider: "openai_compatible", Model: "other",
 		PromptVersion: "ai-spam-v1", RuleVersion: "it", CacheTTL: time.Hour, Now: time.Now().UTC(),
 	})
@@ -227,6 +243,7 @@ func TestStoreIntegration(t *testing.T) {
 	}
 
 	var firstAction application.EnforcementAction
+	var firstEvent application.Event
 	for i := 1; i <= 4; i++ {
 		event := application.Event{
 			ID:          fmt.Sprintf("it-%d-%d", seed, i),
@@ -244,10 +261,14 @@ func TestStoreIntegration(t *testing.T) {
 		}
 		if i == 1 {
 			firstAction = actions[0]
+			firstEvent = event
 		}
 	}
 	if err := store.CompleteAction(ctx, firstAction.Key, application.ActionResult{Succeeded: true, EndedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
+	}
+	if _, pending, err := store.Create(ctx, firstEvent); err != nil || len(pending) != 1 || pending[0].Key == firstAction.Key {
+		t.Fatalf("重送不得重做已完成動作：pending=%+v err=%v", pending, err)
 	}
 	target := commanddomain.Target{ID: userID}
 	command, err := commanddomain.NewCommand(commanddomain.Command{UpdateID: seed + 100, ChatID: chatID, MessageID: 100, Actor: commanddomain.Actor{ID: seed + 2}, Target: &target, TargetMessage: 1, Name: commanddomain.NameWarn, Args: "人工測試"})

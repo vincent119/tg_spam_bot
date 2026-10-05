@@ -73,6 +73,34 @@ type BehaviorStore interface {
 	Observe(ctx context.Context, message domain.Message, fingerprint string) ([]string, error)
 }
 
+// BehaviorObservation 保留既有行為訊號，並附上同一次觀測取得的重複候選。
+type BehaviorObservation struct {
+	Signals []string
+	Repeat  RepeatSnapshot
+}
+
+// RepeatSnapshot 描述同群同人同原文指紋的窗口狀態；Available 為 false 時不可將零值當成無重複。
+type RepeatSnapshot struct {
+	Count           int
+	MessageIDs      []int64
+	Window          time.Duration
+	ObservedAt      time.Time
+	Available       bool
+	Truncated       bool
+	CurrentObserved bool
+}
+
+// DetailedBehaviorStore 在原子觀測時提供可供處置規劃的候選快照。
+type DetailedBehaviorStore interface {
+	BehaviorStore
+	ObserveDetailed(ctx context.Context, message domain.Message, fingerprint string) (BehaviorObservation, error)
+}
+
+// RepeatSnapshotReader 提供不改變正式行為計數的重複窗口查詢。
+type RepeatSnapshotReader interface {
+	PeekRepeat(ctx context.Context, message domain.Message, fingerprint string) (RepeatSnapshot, error)
+}
+
 // ViolationStore 原子保存偵測、違規及冪等處置計畫。
 type ViolationStore interface {
 	Create(ctx context.Context, event Event) (violationCount int, actions []EnforcementAction, err error)

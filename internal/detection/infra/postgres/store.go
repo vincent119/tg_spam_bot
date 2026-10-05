@@ -197,8 +197,22 @@ func (s *Store) FindDuplicateMessageIDs(ctx context.Context, chatID, userID, tar
 // Create 在單一 transaction 內建立違規並計算 30 天處置階梯。
 func (s *Store) Create(ctx context.Context, event application.Event) (count int, actions []application.EnforcementAction, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(toEvent(event)).Error; e != nil {
-			return e
+		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(toEvent(event))
+		if created.Error != nil {
+			return created.Error
+		}
+		if created.RowsAffected == 0 {
+			// 重送只能接續第一次交易已固定的動作，不重新套用當前違規階梯。
+			var existing []enforcementAction
+			if e := tx.Where("event_id=? AND (status=? OR (status=? AND retryable))", event.ID, "pending", "failed").
+				Order("CASE kind WHEN 'delete' THEN 0 WHEN 'warn' THEN 1 WHEN 'mute_10m' THEN 2 WHEN 'mute_24h' THEN 3 WHEN 'ban' THEN 4 ELSE 5 END").
+				Find(&existing).Error; e != nil {
+				return e
+			}
+			for _, row := range existing {
+				actions = append(actions, application.EnforcementAction{Key: row.ActionKey, Kind: application.ActionKind(row.Kind)})
+			}
+			return nil
 		}
 		if event.Mode != application.ModeDeleteOnly {
 			v := violation{EventID: event.ID, ChatID: event.Message.ChatID, UserID: event.Message.UserID, CategoryID: event.Result.CategoryID, Severity: string(event.Result.Severity), Source: "auto", OccurredAt: event.CreatedAt}
@@ -281,7 +295,7 @@ func (s *Store) ClaimCommand(ctx context.Context, command commanddomain.Command)
 	row := commandExecution{
 		ChatID: command.ChatID, UpdateID: command.UpdateID, MessageID: command.MessageID,
 		Command: truncateRunes(string(command.Name), 32), OperatorID: command.Actor.ID, TargetUserID: targetID,
-		TargetMessageID: command.TargetMessage, ArgumentSummary: truncateRunes(command.Args, 200), Source: "manual_command",
+		TargetMessageID: command.TargetMessage, ArgumentSummary: safeCommandArgumentSummary(command), Source: "manual_command",
 		Status: "processing", CreatedAt: time.Now().UTC(),
 	}
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
@@ -300,6 +314,19 @@ func (s *Store) ClaimCommand(ctx context.Context, command commanddomain.Command)
 		existingResult.Message = existing.ErrorText
 	}
 	return commanddomain.Claim{Existing: existingResult}, nil
+}
+
+func safeCommandArgumentSummary(command commanddomain.Command) string {
+	// 新回饋指令的分類及原因是輸入資料，稽核只需記錄參數是否存在。
+	switch command.Name {
+	case commanddomain.NameSpam, commanddomain.NameHam:
+		if strings.TrimSpace(command.Args) == "" {
+			return ""
+		}
+		return "parameters_present"
+	default:
+		return truncateRunes(command.Args, 200)
+	}
 }
 
 func truncateRunes(value string, limit int) string {

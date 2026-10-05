@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/vincent119/tg_spam_bot/internal/detection/application"
@@ -14,6 +15,7 @@ import (
 type aiDetectionEvent struct {
 	ID                 uint64     `gorm:"primaryKey;comment:AI 判定流水號"`
 	ChatID             int64      `gorm:"uniqueIndex:idx_ai_detection_update;index;not null;comment:Telegram 聊天識別碼"`
+	FeedbackEpoch      uint64     `gorm:"not null;default:0;comment:判定時群組人工標記版本"`
 	UpdateID           int64      `gorm:"uniqueIndex:idx_ai_detection_update;not null;comment:Telegram 更新識別碼"`
 	MessageID          int64      `gorm:"not null;comment:Telegram 訊息識別碼"`
 	UserID             int64      `gorm:"index;not null;comment:Telegram 成員識別碼"`
@@ -41,7 +43,7 @@ type aiDetectionEvent struct {
 // ClaimAIDetection 以群組與 update 唯一鍵原子占用 AI 判定事件。
 func (s *Store) ClaimAIDetection(ctx context.Context, event application.AIDetectionEvent) (application.AIDetectionClaim, error) {
 	row := aiDetectionEvent{
-		ChatID: event.ChatID, UpdateID: event.UpdateID, MessageID: event.MessageID, UserID: event.UserID,
+		ChatID: event.ChatID, FeedbackEpoch: event.FeedbackEpoch, UpdateID: event.UpdateID, MessageID: event.MessageID, UserID: event.UserID,
 		ContentFingerprint: event.ContentFingerprint, Provider: truncateRunes(event.Provider, 64), Model: truncateRunes(event.Model, 200),
 		PromptVersion: truncateRunes(event.PromptVersion, 64), SchemaVersion: truncateRunes(event.SchemaVersion, 64),
 		RuleVersion: truncateRunes(event.RuleVersion, 64), Status: "processing", CreatedAt: event.CreatedAt,
@@ -60,7 +62,10 @@ func (s *Store) ClaimAIDetection(ctx context.Context, event application.AIDetect
 	if existing.Status == "failed" && existing.Retryable {
 		update := s.db.WithContext(ctx).Model(&aiDetectionEvent{}).
 			Where("chat_id=? AND update_id=? AND status=? AND retryable", event.ChatID, event.UpdateID, "failed").
-			Updates(map[string]any{"status": "processing", "error_code": "", "error_text": "", "retryable": false})
+			Updates(map[string]any{
+				"status": "processing", "error_code": "", "error_text": "", "retryable": false,
+				"feedback_epoch": event.FeedbackEpoch, "created_at": event.CreatedAt,
+			})
 		if update.Error != nil {
 			return application.AIDetectionClaim{}, update.Error
 		}
@@ -75,25 +80,39 @@ func (s *Store) ClaimAIDetection(ctx context.Context, event application.AIDetect
 func (s *Store) CompleteAIDetection(ctx context.Context, event application.AIDetectionEvent, result domain.AIClassifyResult) error {
 	now := time.Now().UTC()
 	evidence, _ := json.Marshal(result.EvidenceCopy())
-	return s.db.WithContext(ctx).Model(&aiDetectionEvent{}).
-		Where("chat_id=? AND update_id=?", event.ChatID, event.UpdateID).
+	update := s.db.WithContext(ctx).Model(&aiDetectionEvent{}).
+		Where("chat_id=? AND update_id=? AND feedback_epoch=?", event.ChatID, event.UpdateID, event.FeedbackEpoch).
 		Updates(map[string]any{
 			"status": "completed", "label": string(result.Label), "category": truncateRunes(result.Category, 100),
 			"confidence": result.Confidence, "confidence_source": string(result.ConfidenceSource),
 			"reason_code": truncateRunes(result.ReasonCode, 100), "evidence": evidence,
 			"safe_action": string(result.SafeAction), "completed_at": now,
-		}).Error
+		})
+	if update.Error != nil {
+		return update.Error
+	}
+	if update.RowsAffected != 1 {
+		return errors.New("AI 判定版本已變更")
+	}
+	return nil
 }
 
 // FailAIDetection 保存 AI 判定失敗摘要與是否可重試。
 func (s *Store) FailAIDetection(ctx context.Context, event application.AIDetectionEvent, result application.AIDetectionResult) error {
 	now := time.Now().UTC()
-	return s.db.WithContext(ctx).Model(&aiDetectionEvent{}).
-		Where("chat_id=? AND update_id=?", event.ChatID, event.UpdateID).
+	update := s.db.WithContext(ctx).Model(&aiDetectionEvent{}).
+		Where("chat_id=? AND update_id=? AND feedback_epoch=?", event.ChatID, event.UpdateID, event.FeedbackEpoch).
 		Updates(map[string]any{
 			"status": "failed", "error_code": truncateRunes(result.ErrorCode, 64),
 			"error_text": truncateRunes(result.ErrorText, 500), "retryable": result.Retryable, "completed_at": now,
-		}).Error
+		})
+	if update.Error != nil {
+		return update.Error
+	}
+	if update.RowsAffected != 1 {
+		return errors.New("AI 判定版本已變更")
+	}
+	return nil
 }
 
 // FindCachedAIDetection 依內容、provider、模型、prompt 與規則版本查詢未過期完成判定。
@@ -107,13 +126,13 @@ func (s *Store) FindCachedAIDetection(ctx context.Context, key application.AIDet
 	}
 	var row aiDetectionEvent
 	err := s.db.WithContext(ctx).Where(
-		"content_fingerprint=? AND provider=? AND model=? AND prompt_version=? AND rule_version=? AND status=? AND created_at>=?",
-		key.ContentFingerprint, key.Provider, key.Model, key.PromptVersion, key.RuleVersion, "completed", now.UTC().Add(-key.CacheTTL),
+		"chat_id=? AND feedback_epoch=? AND content_fingerprint=? AND provider=? AND model=? AND prompt_version=? AND rule_version=? AND status=? AND created_at>=?",
+		key.ChatID, key.FeedbackEpoch, key.ContentFingerprint, key.Provider, key.Model, key.PromptVersion, key.RuleVersion, "completed", now.UTC().Add(-key.CacheTTL),
 	).Order("created_at DESC").Take(&row).Error
 	if err == nil {
 		return *aiDetectionResult(row), true, nil
 	}
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return application.AIDetectionResult{}, false, nil
 	}
 	return application.AIDetectionResult{}, false, err
@@ -133,7 +152,7 @@ func aiDetectionResult(row aiDetectionEvent) *application.AIDetectionResult {
 		_ = json.Unmarshal(row.Evidence, &result.Evidence)
 	}
 	return &application.AIDetectionResult{
-		Status: row.Status, Result: result, ErrorCode: row.ErrorCode, ErrorText: row.ErrorText,
+		Status: row.Status, FeedbackEpoch: row.FeedbackEpoch, Result: result, ErrorCode: row.ErrorCode, ErrorText: row.ErrorText,
 		Retryable: row.Retryable, CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
 	}
 }

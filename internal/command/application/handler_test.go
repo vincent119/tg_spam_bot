@@ -23,6 +23,7 @@ type telegramSpy struct {
 	unmuted         int64
 	banned          int64
 	banErr          error
+	onDelete        func()
 	unbanned        int64
 }
 
@@ -37,6 +38,9 @@ func (s *telegramSpy) SendMessage(_ context.Context, _ int64, _ int64, text stri
 
 func (s *telegramSpy) DeleteMessage(_ context.Context, _ int64, messageID int64) error {
 	s.deleted = messageID
+	if s.onDelete != nil {
+		s.onDelete()
+	}
 	return nil
 }
 

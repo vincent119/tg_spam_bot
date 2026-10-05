@@ -11,11 +11,20 @@ import (
 	"github.com/vincent119/zlogger"
 )
 
+// SignalAISpam 等常數標識 AI 與群組人工回饋提供的輔助偵測訊號。
 const (
-	SignalAISpam      = "ai_spam"
-	SignalAIUncertain = "ai_uncertain"
-	SignalAIHam       = "ai_ham"
+	SignalAISpam             = "ai_spam"
+	SignalAIUncertain        = "ai_uncertain"
+	SignalAIHam              = "ai_ham"
+	SignalManualFeedbackSpam = "manual_feedback_spam"
+	SignalManualFeedbackHam  = "manual_feedback_ham"
 )
+
+// ManualFeedbackReader 僅讀取本群有效標記與版本，不讓 AI 流程修改人工回饋。
+type ManualFeedbackReader interface {
+	FindEffectiveFeedback(ctx context.Context, chatID int64, fingerprint string) (ManualFeedbackEvidence, error)
+	ManualFeedbackEpoch(ctx context.Context, chatID int64) (uint64, error)
+}
 
 // AIDetectionProcessorPolicy 定義 AI 判定對既有偵測結果的影響範圍。
 type AIDetectionProcessorPolicy struct {
@@ -35,15 +44,24 @@ type AIDetectionProcessor struct {
 	policy     AIDetectionProcessorPolicy
 	trigger    AITriggerPolicy
 	semantic   *SemanticLookupPolicy
+	feedback   ManualFeedbackReader
 	store      AIDetectionStore
 	classifier AIClassifier
 	now        func() time.Time
 }
 
+// AIDetectionProcessorOption 加入可選的群組範圍證據讀取能力。
+type AIDetectionProcessorOption func(*AIDetectionProcessor)
+
+// WithManualFeedbackReader 讓標記修訂後的 AI 判定使用本群有效版本。
+func WithManualFeedbackReader(reader ManualFeedbackReader) AIDetectionProcessorOption {
+	return func(processor *AIDetectionProcessor) { processor.feedback = reader }
+}
+
 // NewAIDetectionProcessor 建立 AI 判定流程。
-func NewAIDetectionProcessor(policy AIDetectionProcessorPolicy, trigger AITriggerPolicy, store AIDetectionStore, classifier AIClassifier, semantic *SemanticLookupPolicy) (*AIDetectionProcessor, error) {
+func NewAIDetectionProcessor(policy AIDetectionProcessorPolicy, trigger AITriggerPolicy, store AIDetectionStore, classifier AIClassifier, semantic *SemanticLookupPolicy, opts ...AIDetectionProcessorOption) (*AIDetectionProcessor, error) {
 	if !policy.Enabled {
-		return &AIDetectionProcessor{policy: policy, trigger: trigger, semantic: semantic, store: store, classifier: classifier, now: time.Now}, nil
+		return newAIDetectionProcessor(policy, trigger, store, classifier, semantic, opts), nil
 	}
 	if store == nil || classifier == nil {
 		return nil, errors.New("ai detection store and classifier are required")
@@ -57,7 +75,17 @@ func NewAIDetectionProcessor(policy AIDetectionProcessorPolicy, trigger AITrigge
 	if policy.MaxTextRunes <= 0 {
 		return nil, errors.New("ai detection max text runes must be positive")
 	}
-	return &AIDetectionProcessor{policy: policy, trigger: trigger, semantic: semantic, store: store, classifier: classifier, now: time.Now}, nil
+	return newAIDetectionProcessor(policy, trigger, store, classifier, semantic, opts), nil
+}
+
+func newAIDetectionProcessor(policy AIDetectionProcessorPolicy, trigger AITriggerPolicy, store AIDetectionStore, classifier AIClassifier, semantic *SemanticLookupPolicy, opts []AIDetectionProcessorOption) *AIDetectionProcessor {
+	processor := &AIDetectionProcessor{policy: policy, trigger: trigger, semantic: semantic, store: store, classifier: classifier, now: time.Now}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(processor)
+		}
+	}
+	return processor
 }
 
 // Evaluate 在規則判定後插入語意查詢與 AI 判定，並回傳可能被 AI 模式提升的結果。
@@ -65,9 +93,27 @@ func (p *AIDetectionProcessor) Evaluate(ctx context.Context, message domain.Mess
 	if p == nil || !p.policy.Enabled {
 		return ruleResult, appMode
 	}
+	if ruleResult.Spam {
+		return ruleResult, appMode
+	}
 	result := ruleResult
-	if p.semantic != nil && !result.Spam {
-		observation, err := p.semantic.Observe(ctx, message.Text)
+	if p.feedback != nil {
+		evidence, err := p.feedback.FindEffectiveFeedback(ctx, message.ChatID, fingerprint)
+		if err != nil {
+			logAIDetectionError(ctx, "manual_feedback", message, "feedback_lookup_failed", err)
+			return appendAISignal(result, SignalAIUncertain), appMode
+		}
+		if evidence.Present && !evidence.Conflict {
+			switch evidence.Label {
+			case domain.AILabelHam:
+				return appendAISignal(result, SignalManualFeedbackHam), appMode
+			case domain.AILabelSpam:
+				result = appendAISignal(result, SignalManualFeedbackSpam)
+			}
+		}
+	}
+	if p.semantic != nil {
+		observation, err := p.semantic.ObserveForChat(ctx, message.ChatID, message.Text)
 		if err != nil {
 			logAIDetectionError(ctx, "semantic_memory", message, "semantic_lookup_failed", err)
 		} else {
@@ -79,31 +125,49 @@ func (p *AIDetectionProcessor) Evaluate(ctx context.Context, message domain.Mess
 	if !decision.ShouldClassify {
 		return result, appMode
 	}
-	aiResult, ok := p.classify(ctx, message, fingerprint, result, decision.Signals)
+	var feedbackEpoch uint64
+	if p.feedback != nil {
+		var err error
+		feedbackEpoch, err = p.feedback.ManualFeedbackEpoch(ctx, message.ChatID)
+		if err != nil {
+			logAIDetectionError(ctx, "manual_feedback", message, "feedback_epoch_failed", err)
+			return appendAISignal(result, SignalAIUncertain), appMode
+		}
+	}
+	aiResult, ok := p.classify(ctx, message, fingerprint, result, decision.Signals, feedbackEpoch)
 	if !ok {
 		return appendAISignal(result, SignalAIUncertain), appMode
 	}
 	return p.applyResult(result, aiResult, appMode), p.effectiveMode(result, aiResult, appMode)
 }
 
-func (p *AIDetectionProcessor) classify(ctx context.Context, message domain.Message, fingerprint string, result domain.Result, signals []string) (domain.AIClassifyResult, bool) {
+func (p *AIDetectionProcessor) classify(ctx context.Context, message domain.Message, fingerprint string, result domain.Result, signals []string, feedbackEpoch uint64) (domain.AIClassifyResult, bool) {
 	event := applicationEvent(message, fingerprint, p.policy, result.RuleVersion, p.now().UTC())
+	event.FeedbackEpoch = feedbackEpoch
 	claim, err := p.store.ClaimAIDetection(ctx, event)
 	if err != nil {
 		logAIDetectionError(ctx, "ai_detection", message, "claim_failed", err)
 		return domain.AIClassifyResult{}, false
 	}
 	if !claim.Acquired {
-		if claim.Existing != nil && claim.Existing.Status == "completed" {
-			return claim.Existing.Result, true
+		if claim.Existing != nil && claim.Existing.Status == "completed" && claim.Existing.FeedbackEpoch == feedbackEpoch {
+			return claim.Existing.Result, p.feedbackEpochCurrent(ctx, message, feedbackEpoch)
 		}
 		return domain.AIClassifyResult{}, false
 	}
-	if cached, found, err := p.store.FindCachedAIDetection(ctx, applicationCacheKey(fingerprint, p.policy, result.RuleVersion, p.now().UTC())); err != nil {
+	if cached, found, err := p.store.FindCachedAIDetection(ctx, applicationCacheKey(event, p.policy, p.now().UTC())); err != nil {
 		logAIDetectionError(ctx, "ai_detection", message, "cache_lookup_failed", err)
-	} else if found {
+	} else if found && cached.FeedbackEpoch == feedbackEpoch {
+		if !p.feedbackEpochCurrent(ctx, message, feedbackEpoch) {
+			p.failChangedFeedback(ctx, event)
+			return domain.AIClassifyResult{}, false
+		}
 		if err := p.store.CompleteAIDetection(ctx, event, cached.Result); err != nil {
 			logAIDetectionError(ctx, "ai_detection", message, "cache_complete_failed", err)
+			return domain.AIClassifyResult{}, false
+		}
+		if !p.feedbackEpochCurrent(ctx, message, feedbackEpoch) {
+			p.failChangedFeedback(ctx, event)
 			return domain.AIClassifyResult{}, false
 		}
 		return cached.Result, true
@@ -116,12 +180,39 @@ func (p *AIDetectionProcessor) classify(ctx context.Context, message domain.Mess
 		logAIDetectionError(ctx, "ai_detection", message, fail.ErrorCode, err)
 		return domain.AIClassifyResult{}, false
 	}
+	if !p.feedbackEpochCurrent(ctx, message, feedbackEpoch) {
+		p.failChangedFeedback(ctx, event)
+		return domain.AIClassifyResult{}, false
+	}
 	if err := p.store.CompleteAIDetection(ctx, event, aiResult); err != nil {
 		logAIDetectionError(ctx, "ai_detection", message, "complete_failed", err)
 		return domain.AIClassifyResult{}, false
 	}
+	if !p.feedbackEpochCurrent(ctx, message, feedbackEpoch) {
+		p.failChangedFeedback(ctx, event)
+		return domain.AIClassifyResult{}, false
+	}
 	logAIDetectionResult(ctx, message, p.policy, aiResult, "completed")
 	return aiResult, true
+}
+
+func (p *AIDetectionProcessor) feedbackEpochCurrent(ctx context.Context, message domain.Message, expected uint64) bool {
+	if p.feedback == nil {
+		return true
+	}
+	current, err := p.feedback.ManualFeedbackEpoch(ctx, message.ChatID)
+	if err != nil {
+		logAIDetectionError(ctx, "manual_feedback", message, "feedback_epoch_failed", err)
+		return false
+	}
+	return current == expected
+}
+
+func (p *AIDetectionProcessor) failChangedFeedback(ctx context.Context, event AIDetectionEvent) {
+	result := AIDetectionResult{Status: "failed", ErrorCode: "feedback_epoch_changed", Retryable: true}
+	if err := p.store.FailAIDetection(context.WithoutCancel(ctx), event, result); err != nil {
+		logAIDetectionError(ctx, "ai_detection", domain.Message{ChatID: event.ChatID, MessageID: event.MessageID, UpdateID: event.UpdateID}, "feedback_epoch_record_failed", err)
+	}
 }
 
 func (p *AIDetectionProcessor) applyResult(result domain.Result, aiResult domain.AIClassifyResult, appMode Mode) domain.Result {
@@ -190,10 +281,11 @@ func applicationEvent(message domain.Message, fingerprint string, policy AIDetec
 	}
 }
 
-func applicationCacheKey(fingerprint string, policy AIDetectionProcessorPolicy, ruleVersion string, now time.Time) AIDetectionCacheKey {
+func applicationCacheKey(event AIDetectionEvent, policy AIDetectionProcessorPolicy, now time.Time) AIDetectionCacheKey {
 	return AIDetectionCacheKey{
-		ContentFingerprint: fingerprint, Provider: policy.Provider, Model: policy.Model,
-		PromptVersion: policy.PromptVersion, RuleVersion: ruleVersion, CacheTTL: policy.CacheTTL, Now: now,
+		ChatID: event.ChatID, FeedbackEpoch: event.FeedbackEpoch,
+		ContentFingerprint: event.ContentFingerprint, Provider: policy.Provider, Model: policy.Model,
+		PromptVersion: policy.PromptVersion, RuleVersion: event.RuleVersion, CacheTTL: policy.CacheTTL, Now: now,
 	}
 }
 

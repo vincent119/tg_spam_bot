@@ -237,10 +237,13 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 | `/ban [原因]` | 管理員 | 回覆成員訊息，封鎖成員 |
 | `/unban <user_id>` | 管理員 | 回覆舊訊息或提供十進位 user ID，解除封鎖 |
 | `/feedspam [分類]` | 管理員 | 回覆漏網垃圾訊息，提交語意樣本；未提供分類時使用 `uncategorized_spam` |
+| `/spam [分類] [delete\|ban]` | 管理員 | 回覆垃圾訊息，保存本群標籤並刪文；明示 `ban` 才會再封鎖成員 |
+| `/ham [原因]` | 管理員 | 回覆正常訊息，修正本群標籤；已刪訊息可用 `/ham event:tg:<update_id> [原因]` |
+| `/check` | 管理員 | 回覆訊息，預覽目前判定，不呼叫 AI 或執行處置 |
 
 群組中 Telegram 可能送出 `/command@liyu_spam_bot`，服務會自動驗證 suffix；其他 Bot 的指令會靜默忽略。具副作用指令每次都向 Telegram 即時確認操作者仍是管理員，且禁止處置管理員、Bot 與可信任成員。
 
-匿名管理員或以群組身份發出的管理指令不會執行。這類訊息通常無法提供真實操作者的 user ID，服務無法用 `getChatMember` 驗證該真人仍是管理員，也無法在 `command_executions` 中保存可稽核的 `operator_id`。需要執行 `/del`、`/ban`、`/mute`、`/warn`、`/feedspam` 等管理指令時，請管理員改用個人身份送出指令。
+匿名管理員或以群組身份發出的管理指令不會執行。這類訊息通常無法提供真實操作者的 user ID，服務無法用 `getChatMember` 驗證該真人仍是管理員，也無法在 `command_executions` 中保存可稽核的 `operator_id`。需要執行 `/del`、`/ban`、`/mute`、`/warn`、`/feedspam`、`/spam`、`/ham`、`/check` 等管理指令時，請管理員改用個人身份送出指令。
 
 實際在群組輸入時，可使用 `/ping` 或 `/ping@liyu_spam_bot`。若同一群組有多個 Bot，建議使用帶 username 的格式，例如：
 
@@ -248,7 +251,7 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 /ping@liyu_spam_bot
 ```
 
-需要指定目標的指令必須「回覆」目標訊息後再送出指令。以刪除垃圾訊息為例：
+需要指定目標的指令通常必須「回覆」目標訊息後再送出；`/ham event:tg:<update_id>` 是已刪訊息的例外。以刪除垃圾訊息為例：
 
 1. 在 Telegram 長按或右鍵點選要刪除的垃圾訊息。
 2. 選擇「回覆」。
@@ -266,6 +269,14 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
 `/feedspam [分類]` 只提交漏網垃圾樣本並同步產生 embedding，資料庫保存 fingerprint、分類、管理員與目標識別、embedding provider/model/version/dimensions，不保存完整原文。此指令不得刪除、警告、禁言、封鎖或修改 `configs/rules/*.yaml`。分類只能包含英文字母、數字、底線或連字號，最多 64 個字元。
 
 `/feedspam` 需要 `semantic_memory.enabled=true`，且 embedding provider 必須可呼叫成功。若使用 AWS Bedrock，需等 Bedrock Runtime 帳號放行後再啟用；放行前請保持 `SEMANTIC_MEMORY_ENABLED=false`，避免管理員提交樣本時因 embedding provider 失敗而無法完成。
+
+`/spam`、`/ham` 是可修正的人工標籤，**有效範圍只限提交指令的群組**，不會將本群判定套用到其他群組；舊 `/feedspam` 的語意樣本仍維持原有流程。兩個新指令都可在 `semantic_memory.enabled=false` 時保存標籤，沒有原文的稽核事件不會建立向量。分類限英文字母、數字、底線或連字號，最多 64 個字元；原因最多 200 個字元。
+
+回覆有文字或媒體說明的垃圾訊息後，使用 `/spam` 會以 `uncategorized_spam` 分類並刪除該訊息；例如 `/spam scam ban` 會標記為 `scam`、刪除訊息並封鎖該成員。也可用 `/spam ban` 保留預設分類。指令會先保存標籤再嘗試處置，因此 Telegram 刪除或封鎖失敗時，可能出現「標籤已保存、處置未完成」的結果。Bot、管理員與可信任成員仍受處置保護；管理員手動處置不受自動偵測的 `app.mode` 限制。
+
+回覆有文字或媒體說明的誤判訊息後使用 `/ham [原因]`，可將本群有效標籤修正為正常。若訊息已刪除，改用 `/ham event:tg:<update_id> [原因]`；`tg:<update_id>` 是 `detection_events.event_id`，不是 Telegram 訊息 ID，且必須對應**本群已保存且可查證**的事件。系統不會由指紋還原原文。`/ham` 不會自動解封、清除警告、加入白名單，也不會覆蓋已明確命中的 YAML 垃圾規則；必要時仍須分別處理處置結果與規則。
+
+回覆有文字或媒體說明的訊息後使用 `/check`，可查看目前規則命中、重複計數、歷史紀錄與預估動作。它不接受參數、不呼叫即時 AI，也不修改偵測狀態或執行處置；指令操作本身仍會留下稽核紀錄並傳送回覆。預覽依目前規則重新計算，未必等於訊息當時的判定；原訊息中的 Telegram 結構化連結也可能無法由回覆文字完整重建。
 
 ### 設定 BotFather 指令清單
 
@@ -285,6 +296,9 @@ unmute - 解除成員禁言
 ban - 封鎖成員
 unban - 解除成員封鎖
 feedspam - 提交漏網垃圾樣本
+spam - 標記垃圾並刪除或封鎖
+ham - 修正本群正常標籤
+check - 預覽目前判定
 ```
 
 BotFather 清單只影響 Telegram 選單顯示，真正權限仍由服務端即時驗證。
@@ -345,6 +359,9 @@ rules:
 | `TELEGRAM_WEBHOOK_SECRET` | Webhook Secret Header 驗證值 | 是 |
 | `TELEGRAM_WEBHOOK_URL` | 公開 Webhook URL；設定後健康檢查會比對 Telegram 實際設定 | 否 |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | 允許處理的群組 ID，包含多筆時以逗號分隔 | 是 |
+| `BEHAVIOR_REPEAT_WINDOW` | 同群、同人、相同原始文案的重複觀測窗口 | 否，預設 `30m` |
+| `BEHAVIOR_REPEAT_THRESHOLD` | 含當前訊息在內的觸發則數 | 否，預設 `3` |
+| `BEHAVIOR_REPEAT_ACTION` | 重複達門檻後的 `observe`、`delete` 或 `ban` 政策 | 否，預設 `observe` |
 | `DATABASE_URL` | 完整 PostgreSQL DSN，設定後覆蓋 DB 分項 | 擇一 |
 | `DB_NAME`、`DB_HOST`、`DB_PORT` | PostgreSQL 位置 | 擇一 |
 | `DB_USER`、`DB_PASSWORD` | PostgreSQL 憑證 | 擇一 |
@@ -419,6 +436,8 @@ rules:
 | `db.tls.client_cert` | PostgreSQL TLS client cert 路徑 |
 | `db.tls.client_key` | PostgreSQL TLS client key 路徑 |
 
+重複文案預設在同群、同人、相同原始文案 30 分鐘內第 3 則產生訊號，但不直接處置；既有的 1 分鐘發送頻率窗口維持獨立。若設定 `behavior.repeat_action=delete`，可清理該窗口內已追蹤的相同訊息，單次最多 100 則；設定為 `ban` 才會請求封鎖。兩者仍受 `app.mode` 上限限制：`observe` 不處置，`delete-only` 最多刪文，`enforce` 才允許 `ban` 封鎖。這與管理員手動 `/spam ban` 不同，後者不受自動模式限制。
+
 AI 與語意記憶預設停用。OpenAI-compatible 使用 API key；AWS Bedrock 正式環境建議使用 IAM Role，只有 `auth_mode=static_keys` 時才需要 access key id 與 secret access key。所有 key 都只能由環境變數、Secret Manager 或部署平台注入，不得寫入設定檔實值。
 
 ## AI 輔助偵測與語意記憶
@@ -433,7 +452,7 @@ AI 與語意記憶預設停用。OpenAI-compatible 使用 API key；AWS Bedrock 
 
 語意記憶需要 PostgreSQL 已安裝 pgvector extension。啟用 `semantic_memory.enabled=true` 時，服務啟動會檢查 extension，並建立 `message_embeddings`、`semantic_blacklist_categories`、`semantic_blacklist_examples`。不同 provider、model、version、dimensions 的向量會隔離查詢。
 
-`/feedspam [分類]` 是人工回饋入口。管理員必須回覆漏網垃圾訊息送出，服務會在原文仍在記憶體時同步產生 embedding，只保存內容 fingerprint、分類、操作者、目標識別與 embedding metadata，不保存完整原文，也不會修改 YAML。
+`/feedspam [分類]` 是原有的語意樣本提交入口。管理員必須回覆漏網垃圾訊息送出，服務會在原文仍在記憶體時同步產生 embedding，只保存內容 fingerprint、分類、操作者、目標識別與 embedding metadata，不保存完整原文，也不會修改 YAML。可修正、限本群生效的 `/spam` 與 `/ham` 用法見上方「Telegram 管理指令」。
 
 Bedrock Runtime 尚未被 AWS allowlisting 放行前，不要在正式群組推廣 `/feedspam`。可以先把 BotFather 指令清單與文件補齊，但正式操作流程應等 `invoke-model` 與 `converse` CLI 驗證通過後再開放。
 
@@ -502,6 +521,9 @@ CREATE DATABASE tg_spam OWNER tg_spam;
 - `auto_reply_executions`
 - `ai_detection_events`
 - `semantic_manual_samples`
+- `manual_feedback_currents`、`manual_feedback_revisions`、`manual_feedback_epoch_rows`
+- `manual_feedback_actions`
+- `repeat_action_executions`、`repeat_action_steps`
 
 若啟用語意記憶，另需先在 database 安裝 pgvector：
 
@@ -514,10 +536,11 @@ CREATE EXTENSION IF NOT EXISTS vector;
 - `message_embeddings`
 - `semantic_blacklist_categories`
 - `semantic_blacklist_examples`
+- `scoped_manual_feedback_embeddings`
 
-`violations` 會新增人工來源、管理員、原因及失效稽核欄位；`command_executions` 保存 `chat_id + update_id` 冪等鍵與人工操作結果。同時建立索引、約束及資料表與欄位註解。專案目前以 GORM model 作為 schema 來源，不再提供或執行獨立 SQL migration。
+`violations` 會新增人工來源、管理員、原因及失效稽核欄位；`command_executions` 保存 `chat_id + update_id` 冪等鍵與人工操作結果。同時建立索引、約束及資料表與欄位註解。新功能另提供 `migrations/20261005111400` 至 `20261005111800` 的版本化 SQL，供部署者審核與依序套用；應用程式啟動不會自動執行這些 SQL，仍會呼叫 GORM `AutoMigrate`。
 
-正式環境升級前應先備份 PostgreSQL，並在備份還原環境執行新版 GORM AutoMigrate。回滾應先回復舊版 app；新增欄位與 `command_executions` 保留，不需刪除，也不影響舊版既有查詢。
+正式環境升級前應先備份 PostgreSQL，在備份還原環境驗證 SQL 升級與新版 GORM `AutoMigrate` 的相容性，再安排正式執行與回退。不要未經檢查就在正式資料庫執行 `down.sql`，以免移除人工標籤、處置稽核等新增資料。
 
 Docker Compose 會自動建立 `tg_spam` 使用者與 database，不需要額外執行上述 SQL。
 
@@ -743,11 +766,11 @@ PostgreSQL Repository 整合測試只有在設定 `TEST_DATABASE_URL` 時執行�
 
 ### Bot 無法刪除、禁言或封鎖
 
-確認 Bot 在目標 supergroup 具有 `can_delete_messages` 與 `can_restrict_members`。不要以 Privacy Mode 設定取代管理員權限。
+確認 Bot 在目標 supergroup 具有 `can_delete_messages` 與 `can_restrict_members`。重複文案自動清理及 `/spam` 刪文需要前者；封鎖還需要後者。不要以 Privacy Mode 設定取代管理員權限。
 
 ### 管理指令沒有反應
 
-確認指令具有 Telegram `bot_command` entity、群組位於允許清單、指令 suffix 是目前 Bot username，而且操作者仍是群組管理員。`/warnings`、`/warn`、`/clearwarn`、`/del`、`/mute`、`/unmute`、`/ban`、`/feedspam` 必須回覆目標訊息；其他 Bot 的指令與超過公開指令頻率限制的請求會靜默忽略。
+確認指令具有 Telegram `bot_command` entity、群組位於允許清單、指令 suffix 是目前 Bot username，而且操作者仍是群組管理員。`/warnings`、`/warn`、`/clearwarn`、`/del`、`/mute`、`/unmute`、`/ban`、`/feedspam`、`/spam`、`/check` 必須回覆目標訊息；`/ham` 必須回覆或提供本群可查證的 `event:tg:<update_id>`。`/spam`、`/check` 的目標須有文字或媒體說明。其他 Bot 的指令與超過公開指令頻率限制的請求會靜默忽略。
 
 ### PostgreSQL 啟動時 AutoMigrate 失敗
 

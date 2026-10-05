@@ -224,3 +224,99 @@ func TestStoreRepeatCapacityDegradesSafely(t *testing.T) {
 		t.Fatalf("冷卻後狀態=%+v", state)
 	}
 }
+
+func TestStoreDetailedRepeatSnapshot(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 120)
+	for i, id := range []int64{11, 12, 13} {
+		observation, err := store.ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := observation.Repeat
+		if !snapshot.Available || !snapshot.CurrentObserved || snapshot.Count != i+1 ||
+			len(snapshot.MessageIDs) != i+1 || snapshot.Truncated || !snapshot.ObservedAt.Equal(*now) {
+			t.Fatalf("第 %d 則快照=%+v", i+1, snapshot)
+		}
+		if slices.Contains(observation.Signals, domain.SignalRepeatedContent) != (i == 2) {
+			t.Fatalf("第 %d 則訊號=%v", i+1, observation.Signals)
+		}
+		*now = now.Add(9 * time.Minute)
+	}
+	peek, err := store.PeekRepeat(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 12}, "same")
+	if err != nil || peek.Count != 3 || !peek.CurrentObserved || len(peek.MessageIDs) != 3 {
+		t.Fatalf("唯讀快照=%+v %v", peek, err)
+	}
+	peek.MessageIDs[0] = 999
+	again, err := store.PeekRepeat(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 12}, "same")
+	if err != nil || slices.Contains(again.MessageIDs, 999) {
+		t.Fatalf("回傳 ID 不得別名共享：%+v %v", again, err)
+	}
+	missing, err := store.PeekRepeat(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 99}, "same")
+	if err != nil || missing.Count != 3 || missing.CurrentObserved {
+		t.Fatalf("未觀測目標不得重複計數：%+v %v", missing, err)
+	}
+}
+
+func TestStorePeekRepeatReadOnlyWindowAndIsolation(t *testing.T) {
+	t.Parallel()
+	store, now := newRepeatTestStore(t, 100)
+	message := domain.Message{ChatID: 1, UserID: 2, MessageID: 11}
+	observeMemory(t, store, message, "same")
+	for _, tt := range []struct {
+		name        string
+		message     domain.Message
+		fingerprint string
+	}{
+		{name: "其他群組", message: domain.Message{ChatID: 2, UserID: 2, MessageID: 11}, fingerprint: "same"},
+		{name: "其他成員", message: domain.Message{ChatID: 1, UserID: 3, MessageID: 11}, fingerprint: "same"},
+		{name: "其他指紋", message: message, fingerprint: "other"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := store.PeekRepeat(t.Context(), tt.message, tt.fingerprint)
+			if err != nil || !snapshot.Available || snapshot.Count != 0 || snapshot.CurrentObserved {
+				t.Fatalf("隔離快照=%+v %v", snapshot, err)
+			}
+		})
+	}
+	*now = now.Add(30 * time.Minute)
+	boundary, err := store.PeekRepeat(t.Context(), message, "same")
+	if err != nil || boundary.Count != 0 || boundary.CurrentObserved || len(store.repeats[1].items) != 1 {
+		t.Fatalf("左界應排除且唯讀不得清理狀態：%+v %v", boundary, err)
+	}
+}
+
+func TestStoreDetailedRepeatSnapshotTruncationAndCooldown(t *testing.T) {
+	t.Parallel()
+	t.Run("截斷仍包含當前", func(t *testing.T) {
+		store, _ := newRepeatTestStore(t, 120)
+		for id := int64(1); id <= 100; id++ {
+			observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+		}
+		observation, err := store.ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 101}, "same")
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := observation.Repeat
+		if snapshot.Count != 101 || len(snapshot.MessageIDs) != maxRepeatCandidates || !snapshot.Truncated || !snapshot.CurrentObserved || !slices.Contains(snapshot.MessageIDs, 101) {
+			t.Fatalf("截斷快照=%+v", snapshot)
+		}
+	})
+	t.Run("容量冷卻資料不可用", func(t *testing.T) {
+		store, _ := newRepeatTestStore(t, 2)
+		for id := int64(1); id <= 2; id++ {
+			observeMemory(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+		}
+		observation, err := store.ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 3}, "same")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observation.Repeat.Available || observation.Repeat.CurrentObserved || slices.Contains(observation.Signals, domain.SignalRepeatedContent) {
+			t.Fatalf("冷卻不可偽裝為可信觀測：%+v", observation)
+		}
+		peek, err := store.PeekRepeat(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 3}, "same")
+		if err != nil || peek.Available || peek.Count != 0 || len(peek.MessageIDs) != 0 {
+			t.Fatalf("冷卻預覽資料應未知：%+v %v", peek, err)
+		}
+	})
+}
