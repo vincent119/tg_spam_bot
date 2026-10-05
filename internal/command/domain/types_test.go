@@ -31,8 +31,8 @@ func TestDefinitionsAndLookup(t *testing.T) {
 	t.Parallel()
 
 	definitions := Definitions()
-	if len(definitions) != 13 {
-		t.Fatalf("指令數=%d，預期 13", len(definitions))
+	if len(definitions) < 15 {
+		t.Fatalf("指令數=%d，至少應有 15 個", len(definitions))
 	}
 	definitions[0].Usage = "changed"
 	help, ok := LookupDefinition(NameHelp)
@@ -41,6 +41,65 @@ func TestDefinitionsAndLookup(t *testing.T) {
 	}
 	if _, ok := LookupDefinition(Name("unknown")); ok {
 		t.Fatal("未知指令不應存在")
+	}
+	for _, name := range []Name{NameSpam, NameHam} {
+		definition, found := LookupDefinition(name)
+		if !found || !definition.AdminOnly {
+			t.Fatalf("管理指令 %q 未註冊：%+v", name, definition)
+		}
+	}
+}
+
+func TestParseSpamArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  SpamArgs
+		err   bool
+	}{
+		{input: "", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionDelete}},
+		{input: "ban", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionBan}},
+		{input: "agent_recruiting delete", want: SpamArgs{Category: "agent_recruiting", Action: SpamActionDelete}},
+		{input: "agent_recruiting ban", want: SpamArgs{Category: "agent_recruiting", Action: SpamActionBan}},
+		{input: "bad category", err: true},
+		{input: "category mute", err: true},
+		{input: "ban category", err: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseSpamArgs(tt.input)
+			if (err != nil) != tt.err || got != tt.want {
+				t.Fatalf("ParseSpamArgs(%q)=%+v err=%v", tt.input, got, err)
+			}
+		})
+	}
+}
+
+func TestParseHamArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  HamArgs
+		err   bool
+	}{
+		{input: "", want: HamArgs{}},
+		{input: "誤判", want: HamArgs{Reason: "誤判"}},
+		{input: "event:tg:123 誤判", want: HamArgs{EventID: "tg:123", Reason: "誤判"}},
+		{input: "event:tg:0", err: true},
+		{input: "event:tg:9223372036854775807", want: HamArgs{EventID: "tg:9223372036854775807"}},
+		{input: "event:tg:9223372036854775808", err: true},
+		{input: "event:tg:" + strings.Repeat("9", 128), err: true},
+		{input: "event:tg:abc", err: true},
+		{input: "event:other:123", err: true},
+		{input: strings.Repeat("警", 201), err: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseHamArgs(tt.input)
+			if (err != nil) != tt.err || got != tt.want {
+				t.Fatalf("ParseHamArgs(%q)=%+v err=%v", tt.input, got, err)
+			}
+		})
 	}
 }
 

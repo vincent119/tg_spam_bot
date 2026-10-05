@@ -38,6 +38,12 @@ const (
 	NameUnban Name = "unban"
 	// NameFeedSpam 提交漏網垃圾樣本供語意記憶使用。
 	NameFeedSpam Name = "feedspam"
+	// NameSpam 標記垃圾並依明示策略處置。
+	NameSpam Name = "spam"
+	// NameHam 將目標訊息標記或修正為正常樣本。
+	NameHam Name = "ham"
+	// NameCheck 預覽目前規則與只讀狀態，不執行處置。
+	NameCheck Name = "check"
 )
 
 // User 保存指令授權及目標保護需要的最小 Telegram 使用者資訊。
@@ -111,8 +117,10 @@ type Command struct {
 	Target        *Target
 	TargetMessage int64
 	TargetText    string
-	Name          Name
-	Args          string
+	// TargetFingerprint 僅供本群稽核事件回饋，不能還原原文。
+	TargetFingerprint string
+	Name              Name
+	Args              string
 }
 
 // NewCommand 驗證必要識別資訊並複製文字邊界。
@@ -123,6 +131,7 @@ func NewCommand(command Command) (Command, error) {
 	command.Actor.Username = strings.Clone(command.Actor.Username)
 	command.Args = strings.Clone(strings.TrimSpace(command.Args))
 	command.TargetText = strings.Clone(strings.TrimSpace(command.TargetText))
+	command.TargetFingerprint = strings.Clone(command.TargetFingerprint)
 	if command.Target != nil {
 		target := *command.Target
 		target.Username = strings.Clone(target.Username)
@@ -156,7 +165,93 @@ func Definitions() []Definition {
 		{Name: NameBan, AdminOnly: true, RequiresReply: true, Usage: "/ban [原因]（回覆成員訊息）", Description: "封鎖成員"},
 		{Name: NameUnban, AdminOnly: true, Usage: "/unban <user_id> 或回覆訊息", Description: "解除封鎖"},
 		{Name: NameFeedSpam, AdminOnly: true, RequiresReply: true, Usage: "/feedspam [分類]（回覆漏網垃圾訊息）", Description: "提交漏網垃圾樣本"},
+		{Name: NameSpam, AdminOnly: true, RequiresReply: true, Usage: "/spam [分類] [delete|ban]（回覆垃圾訊息）", Description: "標記垃圾並刪除或封鎖"},
+		{Name: NameHam, AdminOnly: true, Usage: "/ham [原因]（回覆訊息）或 /ham event:tg:<update_id> [原因]", Description: "標記正常並修正誤判"},
+		{Name: NameCheck, AdminOnly: true, RequiresReply: true, Usage: "/check（回覆訊息）", Description: "只讀預覽目前判定"},
 	}
+}
+
+// SpamAction 定義人工標記後可執行的處置。
+type SpamAction string
+
+const (
+	// SpamActionDelete 只刪除回覆的垃圾訊息。
+	SpamActionDelete SpamAction = "delete"
+	// SpamActionBan 先刪除訊息，再封鎖目標成員。
+	SpamActionBan SpamAction = "ban"
+)
+
+// SpamArgs 是已驗證的分類與明示處置。
+type SpamArgs struct {
+	Category string
+	Action   SpamAction
+}
+
+// ParseSpamArgs 接受未分類、單一分類、明示 delete 或 ban。
+func ParseSpamArgs(value string) (SpamArgs, error) {
+	parts := strings.Fields(value)
+	if len(parts) > 2 {
+		return SpamArgs{}, invalidInput("用法：/spam [分類] [delete|ban]")
+	}
+	parsed := SpamArgs{Category: "uncategorized_spam", Action: SpamActionDelete}
+	if len(parts) == 0 {
+		return parsed, nil
+	}
+	if parts[0] == string(SpamActionDelete) || parts[0] == string(SpamActionBan) {
+		if len(parts) != 1 {
+			return SpamArgs{}, invalidInput("處置後不得再提供分類")
+		}
+		parsed.Action = SpamAction(parts[0])
+		return parsed, nil
+	}
+	category, err := ParseFeedSpamCategory(parts[0])
+	if err != nil {
+		return SpamArgs{}, err
+	}
+	parsed.Category = category
+	if len(parts) == 2 {
+		if parts[1] != string(SpamActionDelete) && parts[1] != string(SpamActionBan) {
+			return SpamArgs{}, invalidInput("處置只支援 delete 或 ban")
+		}
+		parsed.Action = SpamAction(parts[1])
+	}
+	return parsed, nil
+}
+
+// HamArgs 分開已刪訊息的稽核事件 ID 與最多 200 字元原因。
+type HamArgs struct {
+	EventID string
+	Reason  Reason
+}
+
+// ParseHamArgs 只接受此服務已存事件使用的 tg:<數字> 識別格式。
+func ParseHamArgs(value string) (HamArgs, error) {
+	trimmed := strings.TrimSpace(value)
+	parsed := HamArgs{}
+	if strings.HasPrefix(trimmed, "event:") {
+		first, rest, _ := strings.Cut(trimmed, " ")
+		parsed.EventID = strings.TrimPrefix(first, "event:")
+		updateID := strings.TrimPrefix(parsed.EventID, "tg:")
+		if updateID == parsed.EventID || updateID == "" {
+			return HamArgs{}, invalidInput("稽核事件格式錯誤")
+		}
+		for _, r := range updateID {
+			if r < '0' || r > '9' {
+				return HamArgs{}, invalidInput("稽核事件格式錯誤")
+			}
+		}
+		parsedUpdateID, err := strconv.ParseInt(updateID, 10, 64)
+		if err != nil || parsedUpdateID <= 0 {
+			return HamArgs{}, invalidInput("稽核事件格式錯誤")
+		}
+		trimmed = rest
+	}
+	reason, err := ParseReason(trimmed)
+	if err != nil {
+		return HamArgs{}, err
+	}
+	parsed.Reason = reason
+	return parsed, nil
 }
 
 // LookupDefinition 查詢固定指令定義。

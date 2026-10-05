@@ -1,0 +1,12 @@
+[
+  {"name":"帶碼收米一天","text":"带码来干 收米一天1W","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"國慶風口收米","text":"国庆风口来收米 赚1W","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"洗洗米賺九千","text":"帮我洗洗米 赚九千","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"洗米秒結日掙","text":"有码的来帮我洗米稳定秒结日挣1W","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"有碼洗米日掙","text":"有码来洗米 日挣1W","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"幫洗米日掙","text":"能帮我洗米的来 日挣1w","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"煮飯洗米","text":"請幫我洗米煮飯","spam":false},
+  {"name":"正常收款","text":"請掃描付款碼完成收款","spam":false},
+  {"name":"新聞引用黑話","text":"新聞提醒大家留意詐騙文案","reference_text":"洗米 @contact","spam":false,"forbid_signal":"telegram_mention"},
+  {"name":"正常重複短句","text":"收到","spam":false}
+]

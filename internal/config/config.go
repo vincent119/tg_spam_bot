@@ -151,7 +151,20 @@ type Config struct {
 type BehaviorConfig struct {
 	RepeatWindow    time.Duration `json:"repeat_window" yaml:"repeat_window" mapstructure:"repeat_window"`
 	RepeatThreshold int           `json:"repeat_threshold" yaml:"repeat_threshold" mapstructure:"repeat_threshold"`
+	RepeatAction    RepeatAction  `json:"repeat_action" yaml:"repeat_action" mapstructure:"repeat_action"`
 }
+
+// RepeatAction 限制重複文案達門檻後的獨立處置政策。
+type RepeatAction string
+
+const (
+	// RepeatActionObserve 僅觀測重複訊號，不進行 Telegram 處置。
+	RepeatActionObserve RepeatAction = "observe"
+	// RepeatActionDelete 清除符合精確重複快照的訊息。
+	RepeatActionDelete RepeatAction = "delete"
+	// RepeatActionBan 清除訊息並在全域模式允許時封鎖成員。
+	RepeatActionBan RepeatAction = "ban"
+)
 
 // LogConfig 描述日誌輸出格式、目的地及檔案輸出相容設定。
 type LogConfig struct {
@@ -342,6 +355,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("behavior.repeat_window", 30*time.Minute)
 	v.SetDefault("behavior.repeat_threshold", 3)
+	v.SetDefault("behavior.repeat_action", RepeatActionObserve)
 	v.SetDefault("rules.dir", "configs/rules")
 	v.SetDefault("auto_replies.enabled", false)
 	v.SetDefault("ai_detection.enabled", false)
@@ -379,8 +393,9 @@ func envBindings() map[string]string {
 		"telegram.webhook_secret": "TELEGRAM_WEBHOOK_SECRET", "telegram.webhook_url": "TELEGRAM_WEBHOOK_URL",
 		"telegram.allowed_chat_ids": "TELEGRAM_ALLOWED_CHAT_IDS",
 		"behavior.repeat_window":    "BEHAVIOR_REPEAT_WINDOW", "behavior.repeat_threshold": "BEHAVIOR_REPEAT_THRESHOLD",
-		"redis.addr":     "REDIS_ADDR",
-		"redis.username": "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
+		"behavior.repeat_action": "BEHAVIOR_REPEAT_ACTION",
+		"redis.addr":             "REDIS_ADDR",
+		"redis.username":         "REDIS_USERNAME", "redis.password": "REDIS_PASSWORD", "redis.requirepass": "REDIS_REQUIREPASS", "redis.db": "REDIS_DB",
 		"security.content_hash_key": "CONTENT_HASH_KEY", "rules.dir": "RULES_DIR",
 		"auto_replies.enabled": "AUTO_REPLIES_ENABLED", "auto_replies.rules_file": "AUTO_REPLIES_RULES_FILE",
 		"ai_detection.enabled": "AI_DETECTION_ENABLED", "ai_detection.mode": "AI_DETECTION_MODE", "ai_detection.provider": "AI_DETECTION_PROVIDER",
@@ -531,6 +546,11 @@ func (c Config) Validate() error {
 	}
 	if c.Behavior.RepeatThreshold < 2 || c.Behavior.RepeatThreshold > 100 {
 		errs = append(errs, errors.New("behavior.repeat_threshold: 必須介於 2 與 100"))
+	}
+	switch c.Behavior.RepeatAction {
+	case RepeatActionObserve, RepeatActionDelete, RepeatActionBan:
+	default:
+		errs = append(errs, errors.New("behavior.repeat_action: 只支援 observe、delete、ban"))
 	}
 	if len(c.Security.ContentHashKey) < 32 {
 		errs = append(errs, errors.New("security.content_hash_key: must contain at least 32 characters"))

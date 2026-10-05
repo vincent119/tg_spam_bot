@@ -6,6 +6,7 @@ import (
 	"github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
 
+// SignalLowRuleScore 等常數標識進入 AI 判定前的弱訊號。
 const (
 	SignalLowRuleScore        = "low_rule_score"
 	SignalSemanticSimilarSpam = "semantic_similar_spam"
@@ -90,7 +91,7 @@ func hasWeakSuspiciousSignal(signals []string) bool {
 		case "external_url", "deny_domain", "telegram_mention", "telegram_invite",
 			"transaction_signal", "profit_claim", "download_register_signal",
 			"high_frequency", "repeated_content", "coordinated_content", "new_member_link",
-			SignalSemanticSimilarSpam, "semantic_blacklist_match":
+			SignalSemanticSimilarSpam, SignalManualFeedbackSpam, "semantic_blacklist_match":
 			return true
 		}
 	}

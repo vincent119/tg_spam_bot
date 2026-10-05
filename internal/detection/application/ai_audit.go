@@ -9,6 +9,7 @@ import (
 // AIDetectionEvent 保存 AI 判定必要稽核欄位，不包含完整原文或 provider 原始 response。
 type AIDetectionEvent struct {
 	ChatID             int64
+	FeedbackEpoch      uint64
 	UpdateID           int64
 	MessageID          int64
 	UserID             int64
@@ -29,17 +30,20 @@ type AIDetectionClaim struct {
 
 // AIDetectionResult 是可安全保存與重送回讀的 AI 判定摘要。
 type AIDetectionResult struct {
-	Status      string
-	Result      domain.AIClassifyResult
-	ErrorCode   string
-	ErrorText   string
-	Retryable   bool
-	CreatedAt   time.Time
-	CompletedAt *time.Time
+	Status        string
+	FeedbackEpoch uint64
+	Result        domain.AIClassifyResult
+	ErrorCode     string
+	ErrorText     string
+	Retryable     bool
+	CreatedAt     time.Time
+	CompletedAt   *time.Time
 }
 
 // AIDetectionCacheKey 是 AI 判定快取查詢鍵。
 type AIDetectionCacheKey struct {
+	ChatID             int64
+	FeedbackEpoch      uint64
 	ContentFingerprint string
 	Provider           string
 	Model              string

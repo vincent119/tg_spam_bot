@@ -361,3 +361,140 @@ func TestBehaviorStoreRepeatRetention(t *testing.T) {
 	}
 	t.Logf("合成觀測 %d 則，30 分鐘窗口保留 %d 個穩定 ID，TTL=%v", total, len(members), server.TTL("spam:repeat:v2:1:2:same"))
 }
+
+func TestBehaviorStoreDetailedSnapshot(t *testing.T) {
+	t.Parallel()
+	store, _ := newBehaviorTestStore(t)
+	start := store.now()
+	for i, id := range []int64{11, 12, 13} {
+		now := start.Add(time.Duration(i) * 9 * time.Minute)
+		store.now = func() time.Time { return now }
+		observation, err := store.ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := observation.Repeat
+		if !snapshot.Available || !snapshot.CurrentObserved || snapshot.Truncated || snapshot.Count != i+1 ||
+			snapshot.Window != 30*time.Minute || !snapshot.ObservedAt.Equal(now) || len(snapshot.MessageIDs) != i+1 {
+			t.Fatalf("第 %d 則快照不符：%+v", i+1, snapshot)
+		}
+		if !slices.Contains(snapshot.MessageIDs, id) || slices.Contains(observation.Signals, domain.SignalRepeatedContent) != (i == 2) {
+			t.Fatalf("第 %d 則候選或訊號不符：%+v", i+1, observation)
+		}
+	}
+	retry, err := store.ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 13}, "same")
+	if err != nil || retry.Repeat.Count != 3 {
+		t.Fatalf("重送應維持三則：%+v %v", retry, err)
+	}
+}
+
+func TestBehaviorStorePeekRepeatReadOnly(t *testing.T) {
+	t.Parallel()
+	store, server := newBehaviorTestStore(t)
+	start := store.now()
+	for _, id := range []int64{11, 12} {
+		observeBehavior(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+	}
+	key := "spam:repeat:v2:1:2:same"
+	ttl := server.TTL(key)
+	for _, tt := range []struct {
+		name            string
+		message         domain.Message
+		fingerprint     string
+		wantCount       int
+		currentObserved bool
+	}{
+		{name: "已觀測", message: domain.Message{ChatID: 1, UserID: 2, MessageID: 11}, fingerprint: "same", wantCount: 2, currentObserved: true},
+		{name: "未觀測", message: domain.Message{ChatID: 1, UserID: 2, MessageID: 13}, fingerprint: "same", wantCount: 2},
+		{name: "不同使用者", message: domain.Message{ChatID: 1, UserID: 3, MessageID: 11}, fingerprint: "same"},
+		{name: "不同群組", message: domain.Message{ChatID: 2, UserID: 2, MessageID: 11}, fingerprint: "same"},
+		{name: "不同指紋", message: domain.Message{ChatID: 1, UserID: 2, MessageID: 11}, fingerprint: "other"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot, err := store.PeekRepeat(t.Context(), tt.message, tt.fingerprint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !snapshot.Available || snapshot.Count != tt.wantCount || snapshot.CurrentObserved != tt.currentObserved || len(snapshot.MessageIDs) != tt.wantCount {
+				t.Fatalf("唯讀快照不符：%+v", snapshot)
+			}
+		})
+	}
+	if count := store.client.ZCard(t.Context(), key).Val(); count != 2 || server.TTL(key) != ttl {
+		t.Fatalf("預覽不得變更計數或 TTL：count=%d ttl=%v", count, server.TTL(key))
+	}
+	store.now = func() time.Time { return start.Add(31 * time.Minute) }
+	stale, err := store.PeekRepeat(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: 11}, "same")
+	if err != nil || stale.Count != 0 || stale.CurrentObserved || !stale.Available {
+		t.Fatalf("只讀查詢必須排除過窗紀錄：%+v %v", stale, err)
+	}
+	if count := store.client.ZCard(t.Context(), key).Val(); count != 2 {
+		t.Fatalf("預覽不得清除過窗歷史，實際=%d", count)
+	}
+}
+
+func TestBehaviorStoreDetailedSnapshotTruncation(t *testing.T) {
+	t.Parallel()
+	store, _ := newBehaviorTestStore(t)
+	for id := int64(101); id <= 200; id++ {
+		observeBehavior(t, store, domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+	}
+	message := domain.Message{ChatID: 1, UserID: 2, MessageID: 1}
+	observation, err := store.ObserveDetailed(t.Context(), message, "same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := observation.Repeat
+	if snapshot.Count != 101 || len(snapshot.MessageIDs) != maxRepeatCandidates || !snapshot.Truncated || !snapshot.CurrentObserved || !slices.Contains(snapshot.MessageIDs, 1) {
+		t.Fatalf("截斷快照必須保留當前 ID：%+v", snapshot)
+	}
+	peek, err := store.PeekRepeat(t.Context(), message, "same")
+	if err != nil || peek.Count != 101 || !peek.Truncated || !peek.CurrentObserved || !slices.Contains(peek.MessageIDs, 1) {
+		t.Fatalf("截斷後仍應精確辨識目前 ID：%+v %v", peek, err)
+	}
+}
+
+func TestBehaviorStoreDetailedSnapshotConcurrent(t *testing.T) {
+	t.Parallel()
+	first, server := newBehaviorTestStore(t)
+	client := redislib.NewClient(&redislib.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	second, err := NewBehaviorStore(client, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.now = first.now
+	stores := []*BehaviorStore{first, second}
+	outcomes := make([]int, 3)
+	errors := make([]error, 3)
+	var wg sync.WaitGroup
+	for i := range outcomes {
+		wg.Go(func() {
+			id := int64(i + 1)
+			observation, observeErr := stores[i%2].ObserveDetailed(t.Context(), domain.Message{ChatID: 1, UserID: 2, MessageID: id}, "same")
+			errors[i] = observeErr
+			if observeErr != nil {
+				return
+			}
+			outcomes[i] = observation.Repeat.Count
+			if !observation.Repeat.CurrentObserved || !slices.Contains(observation.Repeat.MessageIDs, id) ||
+				len(observation.Repeat.MessageIDs) != observation.Repeat.Count {
+				errors[i] = fmt.Errorf("候選與同一交易計數不一致：%+v", observation.Repeat)
+			}
+		})
+	}
+	wg.Wait()
+	for _, err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	slices.Sort(outcomes)
+	if !slices.Equal(outcomes, []int{1, 2, 3}) {
+		t.Fatalf("每次交易須取得唯一進度快照：%v", outcomes)
+	}
+}

@@ -36,7 +36,7 @@ func TestValidate(t *testing.T) {
 	valid.DB.MaxIdleConns = 5
 	valid.DB.ConnMaxLifetime = 5 * time.Minute
 	valid.Redis.Addr = "redis:6379"
-	valid.Behavior = BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3}
+	valid.Behavior = BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3, RepeatAction: RepeatActionObserve}
 	valid.Security.ContentHashKey = "01234567890123456789012345678901"
 	valid.Rules.Dir = "rules"
 	valid.AIDetection.Mode = ModeObserve
@@ -61,6 +61,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "valid", mutate: func(*Config) {}},
 		{name: "invalid mode", mutate: func(c *Config) { c.App.Mode = "bad" }, wantErr: true},
+		{name: "非法重複處置", mutate: func(c *Config) { c.Behavior.RepeatAction = "invalid" }, wantErr: true},
 		{name: "missing token", mutate: func(c *Config) { c.Telegram.BotToken = "" }, wantErr: true},
 		{name: "missing allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = nil }, wantErr: true},
 		{name: "zero allowed chat", mutate: func(c *Config) { c.Telegram.AllowedChatIDs = []int64{0} }, wantErr: true},
@@ -309,9 +310,9 @@ func TestLoadBehaviorDefaults(t *testing.T) {
 		yaml string
 		want BehaviorConfig
 	}{
-		{name: "舊設定使用預設", want: BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3}},
-		{name: "部分設定補上門檻", yaml: "behavior:\n  repeat_window: 45m\n", want: BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 3}},
-		{name: "完整 YAML 政策", yaml: "behavior:\n  repeat_window: 20m\n  repeat_threshold: 4\n", want: BehaviorConfig{RepeatWindow: 20 * time.Minute, RepeatThreshold: 4}},
+		{name: "舊設定使用預設", want: BehaviorConfig{RepeatWindow: 30 * time.Minute, RepeatThreshold: 3, RepeatAction: RepeatActionObserve}},
+		{name: "部分設定補上門檻", yaml: "behavior:\n  repeat_window: 45m\n", want: BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 3, RepeatAction: RepeatActionObserve}},
+		{name: "完整 YAML 政策", yaml: "behavior:\n  repeat_window: 20m\n  repeat_threshold: 4\n  repeat_action: delete\n", want: BehaviorConfig{RepeatWindow: 20 * time.Minute, RepeatThreshold: 4, RepeatAction: RepeatActionDelete}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -327,8 +328,9 @@ func TestLoadBehaviorEnvironmentOverrides(t *testing.T) {
 	path := behaviorTestConfigPath(t, "behavior:\n  repeat_window: 20m\n  repeat_threshold: 4\n")
 	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "45m")
 	t.Setenv("BEHAVIOR_REPEAT_THRESHOLD", "5")
+	t.Setenv("BEHAVIOR_REPEAT_ACTION", "ban")
 	cfg, err := Load(path)
-	if err != nil || cfg.Behavior != (BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 5}) {
+	if err != nil || cfg.Behavior != (BehaviorConfig{RepeatWindow: 45 * time.Minute, RepeatThreshold: 5, RepeatAction: RepeatActionBan}) {
 		t.Fatalf("環境變數未覆寫 YAML：政策=%+v，錯誤=%v", cfg.Behavior, err)
 	}
 	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "0s")
@@ -376,6 +378,7 @@ func behaviorTestConfigPath(t *testing.T, behavior string) string {
 	t.Setenv("CONTENT_HASH_KEY", strings.Repeat("test", 8))
 	t.Setenv("BEHAVIOR_REPEAT_WINDOW", "")
 	t.Setenv("BEHAVIOR_REPEAT_THRESHOLD", "")
+	t.Setenv("BEHAVIOR_REPEAT_ACTION", "")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("app:\n  mode: observe\n"+behavior), 0o600); err != nil {
 		t.Fatal(err)

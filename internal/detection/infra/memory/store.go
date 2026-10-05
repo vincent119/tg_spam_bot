@@ -34,8 +34,9 @@ type observation struct {
 }
 
 const (
-	repeatWindow    = 30 * time.Minute
-	repeatThreshold = 3
+	repeatWindow        = 30 * time.Minute
+	repeatThreshold     = 3
+	maxRepeatCandidates = 100
 )
 
 type repeatObservation struct {
@@ -107,7 +108,16 @@ func (s *Store) Trust(chatID, userID int64, reason string) {
 }
 
 // Observe 計算有界時間窗內的頻率、重複及跨帳號訊號。
-func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint string) ([]string, error) {
+func (s *Store) Observe(ctx context.Context, message domain.Message, fingerprint string) ([]string, error) {
+	observation, err := s.ObserveDetailed(ctx, message, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	return observation.Signals, nil
+}
+
+// ObserveDetailed 在同一鎖內取得訊號、計數與候選，避免清理目標和門檻分離。
+func (s *Store) ObserveDetailed(_ context.Context, message domain.Message, fingerprint string) (application.BehaviorObservation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
@@ -139,7 +149,8 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 	if sameUser >= 4 {
 		signals = append(signals, "high_frequency")
 	}
-	if s.observeRepeat(message, fingerprint, now) {
+	repeat := s.observeRepeat(message, fingerprint, now)
+	if repeat.Available && repeat.Count >= repeatThreshold {
 		signals = append(signals, domain.SignalRepeatedContent)
 	}
 	if distinctUsers >= 2 {
@@ -152,18 +163,17 @@ func (s *Store) Observe(_ context.Context, message domain.Message, fingerprint s
 	if !joinedAt.IsZero() && now.Sub(joinedAt) <= 10*time.Minute {
 		signals = append(signals, "new_member_link")
 	}
-	return signals, nil
+	return application.BehaviorObservation{Signals: signals, Repeat: repeat}, nil
 }
 
 // observeRepeat 由 Observe 持鎖呼叫，獨立歷史避免長窗口改變頻率與協同訊號。
-func (s *Store) observeRepeat(message domain.Message, fingerprint string, now time.Time) bool {
+func (s *Store) observeRepeat(message domain.Message, fingerprint string, now time.Time) application.RepeatSnapshot {
 	state := s.repeats[message.ChatID]
 	if now.Before(state.cooldownUntil) {
-		return false
+		return application.RepeatSnapshot{Window: repeatWindow, ObservedAt: now.UTC()}
 	}
 	cutoff := now.Add(-repeatWindow)
 	items := state.items[:0]
-	count := 0
 	seen := false
 	for _, item := range state.items {
 		if !item.at.After(cutoff) {
@@ -171,7 +181,6 @@ func (s *Store) observeRepeat(message domain.Message, fingerprint string, now ti
 		}
 		items = append(items, item)
 		if item.userID == message.UserID && item.fingerprint == fingerprint {
-			count++
 			seen = seen || item.messageID == message.MessageID
 		}
 	}
@@ -181,15 +190,67 @@ func (s *Store) observeRepeat(message domain.Message, fingerprint string, now ti
 			observation: observation{at: now, userID: message.UserID, fingerprint: fingerprint},
 			messageID:   message.MessageID,
 		})
-		count++
 	}
 	if s.maxEntries > 0 && len(items) > s.maxEntries {
 		// 去重歷史不足時暫停重複觀測，避免丟失身份後把重送重新計入。
 		s.repeats[message.ChatID] = repeatState{cooldownUntil: now.Add(repeatWindow)}
-		return false
+		return application.RepeatSnapshot{Window: repeatWindow, ObservedAt: now.UTC()}
 	}
 	s.repeats[message.ChatID] = repeatState{items: items}
-	return count >= repeatThreshold
+	return snapshotRepeatItems(items, message, fingerprint, now)
+}
+
+// PeekRepeat 只讀取有效窗口；冷卻期間明示資料不可用。
+func (s *Store) PeekRepeat(ctx context.Context, message domain.Message, fingerprint string) (application.RepeatSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return application.RepeatSnapshot{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	state := s.repeats[message.ChatID]
+	if now.Before(state.cooldownUntil) {
+		return application.RepeatSnapshot{Window: repeatWindow, ObservedAt: now.UTC()}, nil
+	}
+	return snapshotRepeatItems(state.items, message, fingerprint, now), nil
+}
+
+func snapshotRepeatItems(items []repeatObservation, message domain.Message, fingerprint string, now time.Time) application.RepeatSnapshot {
+	cutoff := now.Add(-repeatWindow)
+	ids := make([]int64, 0, min(len(items), maxRepeatCandidates))
+	count := 0
+	currentObserved := false
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
+		if !item.at.After(cutoff) || item.userID != message.UserID || item.fingerprint != fingerprint {
+			continue
+		}
+		count++
+		currentObserved = currentObserved || item.messageID == message.MessageID
+		if len(ids) < maxRepeatCandidates {
+			ids = append(ids, item.messageID)
+		}
+	}
+	if currentObserved {
+		ids = includeCurrentRepeatID(ids, message.MessageID)
+	}
+	return application.RepeatSnapshot{
+		Count: count, MessageIDs: ids, Window: repeatWindow, ObservedAt: now.UTC(),
+		Available: true, Truncated: count > len(ids), CurrentObserved: currentObserved,
+	}
+}
+
+func includeCurrentRepeatID(ids []int64, messageID int64) []int64 {
+	for _, id := range ids {
+		if id == messageID {
+			return ids
+		}
+	}
+	if len(ids) == maxRepeatCandidates {
+		ids[len(ids)-1] = messageID
+		return ids
+	}
+	return append(ids, messageID)
 }
 
 // RecordJoin 保存 Bot 實際觀測到的入群時間。

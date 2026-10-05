@@ -1,3 +1,4 @@
+// Package detection 組裝偵測情境的 AI、語意記憶與外部依賴。
 package detection
 
 import (
@@ -17,6 +18,7 @@ const aiSchemaVersion = "ai-result-v1"
 type AIComponents struct {
 	Processor       *detectionapp.AIDetectionProcessor
 	FeedSpamService *detectionapp.ManualFeedService
+	Embeddings      detectionapp.EmbeddingProvider
 }
 
 // BuildAIComponents 依設定建立 AI 偵測與語意記憶相關元件。
@@ -31,9 +33,12 @@ func BuildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgre
 			return AIComponents{}, err
 		}
 		embeddings = provider
+		components.Embeddings = embeddings
 		semantic = &detectionapp.SemanticLookupPolicy{
 			Embeddings:              embeddings,
 			Memory:                  store,
+			ScopedMemory:            store,
+			Feedbacks:               store,
 			MaxTextRunes:            cfg.AIDetection.MaxTextChars,
 			MaxNeighbors:            cfg.SemanticMemory.MaxNeighbors,
 			SpamSimilarityThreshold: cfg.SemanticMemory.SpamSimilarityThreshold,
@@ -63,7 +68,7 @@ func BuildAIComponents(ctx context.Context, cfg appconfig.Config, store *postgre
 		MaxTextRunes:  cfg.AIDetection.MaxTextChars,
 		MinConfidence: cfg.AIDetection.MinConfidence,
 		CacheTTL:      cfg.AIDetection.CacheTTL,
-	}, detectionapp.AITriggerPolicy{OnlyWhenAmbiguous: cfg.AIDetection.OnlyWhenAmbiguous}, store, classifier, semantic)
+	}, detectionapp.AITriggerPolicy{OnlyWhenAmbiguous: cfg.AIDetection.OnlyWhenAmbiguous}, store, classifier, semantic, detectionapp.WithManualFeedbackReader(store))
 	if err != nil {
 		return AIComponents{}, fmt.Errorf("建立 AI 偵測 processor：%w", err)
 	}

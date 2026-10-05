@@ -14,16 +14,21 @@ import (
 
 // Processor 協調冪等占用、豁免、偵測、違規保存及 Telegram 處置。
 type Processor struct {
-	detector   Detector
-	updates    UpdateStore
-	exemptions ExemptionStore
-	behaviors  BehaviorStore
-	violations ViolationStore
-	telegram   Telegram
-	ai         *AIDetectionProcessor
-	mode       Mode
-	hashKey    []byte
-	now        func() time.Time
+	detector        Detector
+	updates         UpdateStore
+	exemptions      ExemptionStore
+	behaviors       BehaviorStore
+	violations      ViolationStore
+	telegram        Telegram
+	ai              *AIDetectionProcessor
+	repeatAction    RepeatAction
+	repeatThreshold int
+	repeatStore     RepeatActionStore
+	repeatTrusted   TrustedMembers
+	repeatAdmins    RepeatAdminChecker
+	mode            Mode
+	hashKey         []byte
+	now             func() time.Time
 }
 
 // ProcessResult 描述一般訊息經垃圾偵測流程後是否仍可接續其他非垃圾流程。
@@ -91,10 +96,22 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 		return ProcessResult{Exempt: true}, p.updates.Complete(ctx, message.UpdateID)
 	}
 	fingerprint := p.fingerprint(message.Text)
-	signals, err := p.behaviors.Observe(ctx, message, fingerprint)
-	if err != nil {
-		return ProcessResult{}, fmt.Errorf("observe behavior: %w", err)
+	var signals []string
+	var repeat RepeatSnapshot
+	if detailed, ok := p.behaviors.(DetailedBehaviorStore); ok {
+		observation, err := detailed.ObserveDetailed(ctx, message, fingerprint)
+		if err != nil {
+			return ProcessResult{}, fmt.Errorf("observe behavior: %w", err)
+		}
+		signals = observation.Signals
+		repeat = observation.Repeat
+	} else {
+		signals, err = p.behaviors.Observe(ctx, message, fingerprint)
+		if err != nil {
+			return ProcessResult{}, fmt.Errorf("observe behavior: %w", err)
+		}
 	}
+	repeatPlan := PlanRepeat(repeat, p.repeatThreshold, p.repeatAction, p.mode)
 	result := p.detector.Detect(message, signals...)
 	effectiveMode := p.mode
 	if p.ai != nil {
@@ -116,11 +133,20 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 			return ProcessResult{}, err
 		}
 	}
+	repeatApplied := false
+	if (p.repeatAction == RepeatActionDelete || p.repeatAction == RepeatActionBan) && p.mode != ModeObserve {
+		// 已保存的處置快照在重送時仍須接續，即使重算後未達門檻。
+		skipCurrentDelete := result.Spam && effectiveMode != ModeObserve
+		repeatApplied, err = p.executeRepeat(ctx, event, repeatPlan, skipCurrentDelete)
+		if err != nil {
+			return ProcessResult{}, err
+		}
+	}
 	if err := p.updates.Complete(ctx, message.UpdateID); err != nil {
 		return ProcessResult{}, fmt.Errorf("complete update: %w", err)
 	}
 	completed = true
-	return ProcessResult{Spam: result.Spam}, nil
+	return ProcessResult{Spam: result.Spam || repeatApplied}, nil
 }
 
 func (p *Processor) execute(ctx context.Context, event Event, actions []EnforcementAction) error {
