@@ -1,6 +1,6 @@
 # 任務文件：版本化資料庫 Migration Runner
 
-Status: Implemented Locally
+Status: Complete
 
 ## Execution Context
 
@@ -9,7 +9,7 @@ Status: Implemented Locally
 - 已定決策：核心／語意雙 stream；只自動 `up`；Bot 啟動驗版本、clean 狀態與 checksum；不符即停止。
 - 工具：選用 `pressly/goose/v3` v3.27.0；其缺少 checksum、dirty 與接管來源欄位，runner 須另加不可略過的稽核層。
 - 關鍵檔案：`cmd/tg-spam-bot/main.go`、`migrations/`、`Dockerfile`、`docker-compose.yaml`、`README.md`。
-- 完成條件：[requirements.md](requirements.md) R1～R6 有隔離 DB 與部署編排驗證，正式上線前另完成備份還原演練。
+- 完成條件：[requirements.md](requirements.md) R1～R7 有隔離 DB 與部署編排驗證，正式上線前另完成備份還原演練。
 
 ### Protected Behavior
 
@@ -41,6 +41,7 @@ Status: Implemented Locally
 | T3 啟動及部署 gate | T2 | Done |
 | T4 整合與回歸驗證 | T3 | Done Locally |
 | T5 文件與交付 | T4 | Done Locally |
+| T6 整合發送者資料 migration | T5 | Done Locally |
 
 ## 實作任務
 
@@ -86,6 +87,13 @@ Status: Implemented Locally
   - Context：說明 runner 與 Bot 的責任、逐版日誌、備份／回退、最小權限及手動接管步驟。
   - Verify：文件中的命令、日誌欄位、版本與實作一致；`git diff --stat`、`git diff --check`。
 
+- [x] T6：整合已合併的發送者資料 migration
+  - Status: Done Locally
+  - Boundary：僅整合 `main`、解決 `README.md` 衝突、更新本 SDD、`migrations/schema_contract.json` 與 runner 測試；不得修改已發布的 SQL 或 Telegram 偵測處置。
+  - Depends：T5 及 `feature/detection-event-message-metadata` 合併至 `main`。
+  - Context：`main` 已包含 `20261005133800_detection_event_message_metadata`，嵌入式 manifest 因缺少契約會拒絕啟動；README 同時修改資料庫啟動與查詢說明。
+  - Verify：新版 migration 在空庫及舊版 runner 已完成的庫可向前套用；既有 GORM 欄位可安全接管；保留 README 的發送者查詢與新部署說明；完整 Go 測試、`go vet`、`git diff --check`。
+
 ## 驗證任務與品質檢查清單
 
 - [x] R1～R5 均有隔離 PostgreSQL 的成功與失敗案例；專用 CI 明確設定 `TEST_DATABASE_URL`，不把 Skip 當成功。
@@ -110,10 +118,14 @@ Status: Implemented Locally
 - T5：README、`.env.example`、Makefile、部署角色腳本與 migration 專用 CI 已更新；本機沒有執行正式 migration 或推送映像。
 - 正式 SDD 原有任務已完成並合併；本規格不改寫其歷史驗收結果。
 - 既有 `down.sql` 可能移除人工標籤、向量、重複處置稽核或 `feedback_epoch` 欄位，禁止自動回退。
+- 2026-10-05：`main` 合併發送者資料 PR 後，本分支需額外整合 `20261005133800`；為解決 README 衝突與 manifest 缺契約，新增 T6，不改寫既有 migration。
+- T6：README 保留發送者日誌與查詢說明，並改為正確的 runner 部署敘述；新增 `133800` 的完整 `detection_events` 契約。前七版契約的正規化內容雜湊與原分支一致，已發布 SQL 未修改。
+- T6：隔離 PostgreSQL 18 的空庫、舊版 Runner 增量升級與既有 GORM 欄位接管測試通過；`go test -p 1 -race -count=1 ./...`、`go vet ./...`、Docker 建置與映像內 `up`／`verify` 均通過，最高核心版本為 `20261005133800`。全量 lint 仍有 11 項既有警告。
+- T6：第一次映像驗證誤用測試映像預先含表的 `postgres` database，核心基線因此拒絕執行；改用新建空 database 後所有核心版本及驗證均成功。正式資料庫未操作。
 
 ## 驗證結果摘要
 
 - 新行為驗證：隔離 PostgreSQL 16、18 與 pgvector 測試、Bot 共用唯讀 gate、Compose gate、雙角色權限與映像封裝均通過。
 - 現況查證：已核對啟動流程、五組 SQL、Dockerfile、Compose 與 README，並以實際舊版及新版 GORM schema 比對。
 - 文件一致性：README、設定範例、Compose、Dockerfile 及專用 CI 已依實作更新。
-- 剩餘風險：正式 DB 的既有 schema、已手動套用版本、備份可還原性及 pgvector 可用性仍未知；正式切換前必須在備份還原環境演練。GitHub CI 尚待遠端執行。原始工作樹另有未提交的 `20261005133800_detection_event_message_metadata` 變更，未包含於本分支；若未來合併該版，必須同步增加 schema 契約並重新驗證 runner，否則 manifest 會安全地拒絕啟動。
+- 剩餘風險：正式 DB 的既有 schema、已手動套用版本、備份可還原性及 pgvector 可用性仍未知；正式切換前必須在備份還原環境演練。GitHub CI 尚待遠端執行。

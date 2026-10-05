@@ -1,10 +1,12 @@
 # 需求文件：版本化資料庫 Migration Runner
 
-Status: Implemented Locally
+Status: Complete
 
 ## 文件定位與來源
 
 本規格接續已完成的[重複處置與人工回饋 SDD](../2026-10-05-11-14_Feature-moderation-feedback-workflow/requirements.md)，處理其 `11400` 至 `11800` 版本化 SQL 原本不會自動執行、也沒有逐版日誌的交付缺口。先前僅建立 SDD；使用者後續授權依任務實作。本次只操作一次性隔離資料庫，未修改正式資料庫。
+
+後續 `main` 已合併[偵測事件發送者資料 SDD](../2026-10-05-13-38_Feature-detection-event-message-metadata/requirements.md)，新增 `20261005133800` SQL。本規格的交付範圍因此加入該版本的向前遷移與結構契約，但不修改已發布的 SQL 或發送者資料行為。
 
 既有偵測規則、`/spam`、`/ham`、`/check`、資料內容與 Telegram 處置契約均不在本規格重寫範圍。以[目前的啟動流程](../../cmd/tg-spam-bot/main.go)與[部署說明](../../README.md#postgresql-初始化)作為現況依據。
 
@@ -49,7 +51,7 @@ Status: Implemented Locally
 
 - 使用者：部署者、維運者；一般群組成員的既有行為應保持不變。
 - 介面：一次性 migration 命令的 `up`、`status`、`verify`，以及部署編排。
-- 資料：migration 版本紀錄、基線 SQL、既有五組 SQL；不得更動業務資料。
+- 資料：migration 版本紀錄、基線 SQL、既有五組 SQL 及後續合併的 `20261005133800`；不得更動業務資料。
 - 文件：README、環境準備、備份與回退程序。
 - 作為部署者，我想在啟動新版 Bot 前看到已套用版本及失敗原因，以便避免未完成 schema 上線。
 
@@ -61,7 +63,7 @@ Status: Implemented Locally
 - 測試：待建立 `TestMigrationRunnerFreshDatabase`。
 - 假設：具備核准的核心基線與必要 DDL 權限，未啟用語意記憶。
 - 當：執行核心 runner，再啟動 Bot。
-- 那麼：基礎表先建立，`11400`、`11600`、`11700`、`11800` 依序完成；不要求 pgvector，Bot 版本檢查通過。
+- 那麼：基礎表先建立，`11400`、`11600`、`11700`、`11800`、`133800` 依序完成；不要求 pgvector，Bot 版本檢查通過。
 
 ### R2：既有資料庫接管與重跑
 
@@ -103,9 +105,17 @@ Status: Implemented Locally
 - 當：啟動新版 Bot 並執行既有測試。
 - 那麼：偵測、處置與人工回饋結果不因 runner 改變。
 
+### R7：已部署 Runner 的增量升級
+
+- 場景：資料庫已由舊版 Runner 套用到 `11800`，另有舊訊息事件資料。
+- 測試：`TestMigrationRunnerMessageMetadataUpgrade`、`TestMigrationRunnerAdoptAndRerun`、`TestMigrationManifestStreams`。
+- 假設：新版本 `133800` 的 SQL 與三個可為 `NULL` 的欄位契約同版發布。
+- 當：新版 Bot 在 `133800` 尚未套用時驗證，再執行新版 Runner `up`。
+- 那麼：Bot 先拒絕啟動；runner 只向前套用缺少版本，不改舊版 SQL 或舊事件；原有事件保留且新欄位為 `NULL`，重跑零 DDL。若既有 GORM 已建立這三欄且結構相符，明示接管時標為 `adopted`。
+
 ## 驗收條件與驗證需求
 
-- R1～R5 必須在一次性隔離 PostgreSQL 實跑，涵蓋空庫、既有庫、重跑、並行、失敗與缺 pgvector；專用 CI 不得因缺少 `TEST_DATABASE_URL` 而靜默略過。
+- R1～R5 與 R7 必須在一次性隔離 PostgreSQL 實跑，涵蓋空庫、既有庫、重跑、增量升級、並行、失敗與缺 pgvector；專用 CI 不得因缺少 `TEST_DATABASE_URL` 而靜默略過。
 - R5 必須確認容器映像含同版 SQL、runner 退出碼確實控制 app 啟動，並能從日誌辨識已完成版本；另以兩組 DB 憑證實測 runner 可做 DDL、Bot 可正常讀寫但無 DDL 權限。
 - R6 須通過既有 Go 回歸；README 與部署設定不得再宣稱 SQL 不會自動執行而忽略 pre-deploy job 的實際行為。
 

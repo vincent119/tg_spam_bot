@@ -77,7 +77,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-`log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因或 Telegram 訊息原文。
+`log.level: debug` 時，每個通過安全驗證的 Telegram Update 會記錄 Webhook 接收事件；管理指令另記錄接收、完成、重送、限流或失敗結果。日誌固定使用 `request_id=tg:<update_id>` 串接 Webhook、command 與垃圾訊息偵測流程，並包含 `subsystem`、`update_id`、`chat_id`、`command`、`status` 等結構化欄位。Webhook 接收與偵測判定摘要會記錄 `user_id`，Telegram 有提供時也記錄當時的 `username`；`username` 可能變動，查證時仍以 `user_id` 為準。基於安全要求，不記錄 Bot Token、Webhook secret、指令參數、原因、`first_name` 或 Telegram 訊息原文。
 
 `migrate` 容器逐版記錄 `stream`、`version`、`status`、`provenance`、checksum 摘要與耗時，成功後 app 才啟動。Bot 啟動時的 `資料庫版本驗證完成` 代表必要版本、checksum 與 schema 契約均已通過；任一條件失敗時，HTTP Server 不會啟動。查詢最近五分鐘日誌：
 
@@ -514,7 +514,7 @@ docker compose exec postgres /docker-entrypoint-initdb.d/10-app-role.sh
 
 外部 PostgreSQL 需由部署者建立 database、DDL 與 DML 角色，並授予 DML 角色 `CONNECT`、`USAGE ON SCHEMA public`、必要業務表的 `SELECT, INSERT, UPDATE, DELETE` 與序列的 `USAGE, SELECT`。runner 的 `migration` schema 只授予 Bot `USAGE` 及版本表 `SELECT`，不得授予其 `INSERT, UPDATE, DELETE`。DDL 角色須有建表及新增索引權限；DML 角色不得具有 schema `CREATE`。新表與序列需透過 `ALTER DEFAULT PRIVILEGES FOR ROLE <DDL角色> IN SCHEMA public` 延續授權，`migration` schema 的預設授權則僅為 `SELECT`。可參考上方腳本，但不得把正式密碼寫入 Git。
 
-全新 database 在啟動時依核心 stream 套用 `20261005110000` 基線及 `11400`、`11600`、`11700`、`11800`；語意記憶啟用時，先由部署者安裝 pgvector，再套用語意基線 `20261005110100` 與 `11500`。語意功能關閉時不需 pgvector，語意版本保持 `pending`。
+全新 database 在啟動時依核心 stream 套用 `20261005110000` 基線及 `11400`、`11600`、`11700`、`11800`、`133800`；語意記憶啟用時，先由部署者安裝 pgvector，再套用語意基線 `20261005110100` 與 `11500`。語意功能關閉時不需 pgvector，語意版本保持 `pending`。`133800` 為 `detection_events` 新增可為 `NULL` 的發送者名稱及原始訊息時間欄位；舊紀錄不回填。
 
 升級既有 GORM `AutoMigrate` 資料庫前，先備份、在還原副本執行 `status`，核對結構後明示接管：
 
@@ -548,8 +548,26 @@ CREATE DATABASE tg_spam OWNER tg_spam_migrator;
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-
 ### PostgreSQL 查詢範例
+
+查詢指定訊息的發送者快照與時間差：
+
+```sql
+SELECT
+  update_id,
+  chat_id,
+  message_id,
+  user_id,
+  username,
+  first_name,
+  message_sent_at AT TIME ZONE 'Asia/Taipei' AS message_sent_at_taipei,
+  created_at AT TIME ZONE 'Asia/Taipei' AS detected_at_taipei,
+  EXTRACT(EPOCH FROM (created_at - message_sent_at))::bigint AS detection_lag_seconds
+FROM detection_events
+WHERE chat_id = -1001234567890 AND message_id = 12345;
+```
+
+`message_sent_at` 是 Telegram 原始訊息時間，`created_at` 是 Bot 判定時間。新欄位只會記錄升級後收到的訊息；舊紀錄與無公開 username 的使用者會顯示 `NULL`。`username`、`first_name` 是發送當時的快照，不能當作穩定身分識別，應以 `user_id` 為準。
 
 最近 AI 判定：
 

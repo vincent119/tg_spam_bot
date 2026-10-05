@@ -6,6 +6,8 @@
 
 資料契約：變更前有 `11400` 至 `11800` 五組 `up/down.sql`，沒有版本表與 runner。現在另有核心及語意基線、嵌入式 SQL、schema 契約、goose 版本表與 `migration.schema_migration_runs`。`11800` 依賴 `ai_detection_events`；`11500` 依賴 pgvector。映像與 Compose 的修改僅在本工作樹，正式資料庫狀態、已手動套用版本、Bot 權限及備份可用性均未知，不得假造。
 
+`main` 後續合併 `20261005133800_detection_event_message_metadata`。此版只擴充 `detection_events` 的三個可為 `NULL` 欄位，屬核心 stream；Runner 增加該版契約而不改其 SQL，也不改前七版契約或 checksum。
+
 ## Bounded Context 與設計原則
 
 包含：核心／語意兩條 migration stream、全新資料庫基線、既有資料庫接管、版本與 checksum、互斥、逐版日誌、部署門檻及文件。
@@ -30,7 +32,7 @@
 
 ## 版本、基線與語意依賴
 
-- 核心 stream：基線 `20261005110000` 已由 `ad6b259` 於隔離 PostgreSQL 18 重建，固定為 `11400` 前的核心 schema，不含 `11400`～`11800` 的新增結構；其後依序執行 `11400`、`11600`、`11700`、`11800`。在 PostgreSQL 16、18 的隔離空庫已實測可套用。
+- 核心 stream：基線 `20261005110000` 已由 `ad6b259` 於隔離 PostgreSQL 18 重建，固定為 `11400` 前的核心 schema，不含後續版本的新增結構；其後依序執行 `11400`、`11600`、`11700`、`11800`、`133800`。前七版在 PostgreSQL 16、18 的隔離空庫已實測可套用；`133800` 須在本次整合重新驗證。
 - 語意 stream：基線 `20261005110100` 已由 `ad6b259` 在隔離 pgvector 0.8.5 資料庫重建，固定為 `11500` 前的語意 schema，需預先安裝 pgvector extension；其後才執行 `11500`。隔離庫已實測可套用。語意功能關閉時此 stream 留待執行，不標記成功。
 - 已由 `AutoMigrate` 建立的既有環境不能直接「假定已套用」。接管前比對表、欄位、型別、索引、約束與必要資料；符合時以 `adopted` 保存來源，不能標成 runner `applied`。T0 實測發現 GORM 在部分表使用序列預設值與唯一索引，SQL 使用 identity 與唯一約束；接管允許經明列檢查的語意等價，不以 `pg_dump` 文字完全相同為必要。GORM 目前不建立 `idx_ai_feedback_cache`，因此不得把缺該索引的 `11800` 標為 `adopted`。checksum 指向接管時核對的檔案，不證明該 SQL 曾執行。
 - 每版 SQL 後在提交成功紀錄前，再驗證預期表、欄位、型別、索引定義及約束。`IF NOT EXISTS` 只避免重複建立，不能代替結構相容檢查。
@@ -62,6 +64,7 @@
 | R4 | 資料庫鎖、交易與 dirty state | 並行、失敗、程序中斷與檔案漂移 |
 | R5 | 逐版日誌、非零退出、部署 gate | 日誌 spy、容器／Compose 啟動順序 |
 | R6 | Bot 驗版本、clean 與 checksum，業務流程不變 | 全量 Go 回歸與 DB 整合 |
+| R7 | `133800` 獨立版本契約與增量升級 | 舊版 runner 狀態、新版 gate、套用及 GORM 接管測試 |
 
 ## 替代方案與風險
 

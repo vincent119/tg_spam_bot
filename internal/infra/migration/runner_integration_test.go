@@ -95,8 +95,8 @@ func TestMigrationRunnerFreshDatabase(t *testing.T) {
 	if err := runner.Verify(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if len(transitions) != 10 {
-		t.Fatalf("預期五組核心 migration 各有開始及完成日誌，實際 %d", len(transitions))
+	if len(transitions) != 12 {
+		t.Fatalf("預期六組核心 migration 各有開始及完成日誌，實際 %d", len(transitions))
 	}
 	states, err := runner.Status(t.Context())
 	if err != nil {
@@ -134,7 +134,7 @@ func TestMigrationRunnerLogsAndStartupGate(t *testing.T) {
 	if err := runner.Up(t.Context(), false, logf); err != nil {
 		t.Fatal(err)
 	}
-	if started != 5 || completed != 5 {
+	if started != 6 || completed != 6 {
 		t.Fatalf("逐版開始與完成日誌不完整: started=%d completed=%d", started, completed)
 	}
 	if err := runner.Verify(t.Context()); err != nil {
@@ -188,6 +188,57 @@ func TestMigrationRunnerAdoptAndRerun(t *testing.T) {
 	}
 	if err := runner.Up(t.Context(), true, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMigrationRunnerMessageMetadataUpgrade(t *testing.T) {
+	db := testDatabase(t)
+	previous, err := New(db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousFiles := make([]File, 0, len(previous.files)-1)
+	for _, file := range previous.files {
+		if file.Version != 20261005133800 {
+			previousFiles = append(previousFiles, file)
+		}
+	}
+	previous.files = previousFiles
+	if err := previous.Up(t.Context(), false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), "INSERT INTO detection_events(event_id,update_id,chat_id,message_id,user_id,content_fingerprint,created_at) VALUES('prior-event',77,-1001,123,456,'prior-fingerprint',now())"); err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := New(db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Verify(t.Context()); err == nil {
+		t.Fatal("缺少 133800 時新版 Bot 不得啟動")
+	}
+	if err := current.Up(t.Context(), false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Verify(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	states, err := current.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range states {
+		if state.File.Version == 20261005133800 && state.Status != "applied" {
+			t.Fatalf("133800 應實際套用，狀態=%s", state.Status)
+		}
+	}
+	var count int
+	if err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM detection_events WHERE update_id=77 AND username IS NULL AND first_name IS NULL AND message_sent_at IS NULL").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("舊事件應保留且新增欄位為 NULL，count=%d err=%v", count, err)
+	}
+	if err := current.Up(t.Context(), false, nil); err != nil {
+		t.Fatalf("升級重跑不得重複套用: %v", err)
 	}
 }
 

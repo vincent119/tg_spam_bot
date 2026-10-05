@@ -20,6 +20,8 @@ type Message struct {
 	ChatID    int64
 	MessageID int64
 	UserID    int64
+	Username  string
+	FirstName string
 	Text      string
 	// ReferenceText 與發送者輸入分離，避免將被引用內容的聯絡訊號誤算為發送者行為。
 	ReferenceText string

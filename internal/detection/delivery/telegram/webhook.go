@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/vincent119/zlogger"
 
@@ -148,11 +149,7 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := zlogger.WithRequestID(r.Context(), fmt.Sprintf("tg:%d", update.UpdateID))
-	zlogger.DebugContext(ctx, "收到 Telegram Webhook 更新",
-		zlogger.String("subsystem", "webhook"),
-		zlogger.Int64("update_id", update.UpdateID),
-		zlogger.Int64("chat_id", update.Message.Chat.ID),
-	)
+	zlogger.DebugContext(ctx, "收到 Telegram Webhook 更新", webhookUpdateLogFields(update, time.Now().UTC())...)
 	if h.commands != nil {
 		command, disposition := update.Command(h.botUsername)
 		switch disposition {
@@ -237,6 +234,31 @@ func (h *Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func webhookUpdateLogFields(update Update, receivedAt time.Time) []zlogger.Field {
+	message := update.Message
+	fields := []zlogger.Field{
+		zlogger.String("subsystem", "webhook"),
+		zlogger.Int64("update_id", update.UpdateID),
+		zlogger.Int64("chat_id", message.Chat.ID),
+		zlogger.Int64("message_id", message.MessageID),
+	}
+	if message.From != nil {
+		fields = append(fields, zlogger.Int64("user_id", message.From.ID))
+		if message.From.Username != "" {
+			fields = append(fields, zlogger.String("username", message.From.Username))
+		}
+	}
+	if message.Date > 0 {
+		// Telegram 的 date 是發送時間；與進站時間分開記錄才可辨識歷史更新。
+		sentAt := time.Unix(message.Date, 0).UTC()
+		fields = append(fields,
+			zlogger.String("message_sent_at", sentAt.Format(time.RFC3339)),
+			zlogger.Int64("delivery_lag_seconds", int64(receivedAt.Sub(sentAt).Seconds())),
+		)
+	}
+	return fields
 }
 
 func logAutoReplySkipped(ctx context.Context, update Update, reason string) {

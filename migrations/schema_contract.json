@@ -1211,5 +1211,37 @@
         "idx_ai_detection_events_created_at": "CREATE INDEX idx_ai_detection_events_created_at ON public.ai_detection_events USING btree (created_at)"
       }
     }
+  },
+  "20261005133800": {
+    "detection_events": {
+      "columns": {
+        "mode": { "type": "text", "not_null": false },
+        "score": { "type": "bigint", "not_null": false },
+        "chat_id": { "type": "bigint", "not_null": true },
+        "is_spam": { "type": "boolean", "not_null": false },
+        "matches": { "type": "jsonb", "not_null": false },
+        "signals": { "type": "jsonb", "not_null": false },
+        "user_id": { "type": "bigint", "not_null": true },
+        "event_id": { "type": "text", "not_null": true },
+        "severity": { "type": "text", "not_null": false },
+        "threshold": { "type": "bigint", "not_null": false },
+        "update_id": { "type": "bigint", "not_null": true },
+        "created_at": { "type": "timestamp with time zone", "not_null": true },
+        "message_id": { "type": "bigint", "not_null": true },
+        "category_id": { "type": "text", "not_null": false },
+        "rule_version": { "type": "text", "not_null": false },
+        "content_fingerprint": { "type": "text", "not_null": true },
+        "username": { "type": "text", "not_null": false },
+        "first_name": { "type": "text", "not_null": false },
+        "message_sent_at": { "type": "timestamp with time zone", "not_null": false }
+      },
+      "indexes": {
+        "detection_events_pkey": "CREATE UNIQUE INDEX detection_events_pkey ON public.detection_events USING btree (event_id)",
+        "idx_detection_events_chat_id": "CREATE INDEX idx_detection_events_chat_id ON public.detection_events USING btree (chat_id)",
+        "idx_detection_events_user_id": "CREATE INDEX idx_detection_events_user_id ON public.detection_events USING btree (user_id)",
+        "idx_detection_events_update_id": "CREATE UNIQUE INDEX idx_detection_events_update_id ON public.detection_events USING btree (update_id)",
+        "idx_detection_events_created_at": "CREATE INDEX idx_detection_events_created_at ON public.detection_events USING btree (created_at)"
+      }
+    }
   }
 }

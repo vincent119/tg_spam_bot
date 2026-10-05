@@ -1,6 +1,22 @@
 package telegram
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestDomainMessageSenderMetadata(t *testing.T) {
+	t.Parallel()
+	sentAt := time.Date(2026, time.October, 5, 2, 15, 0, 0, time.UTC)
+	update := Update{UpdateID: 8, Message: &Message{
+		MessageID: 12345, Date: sentAt.Unix(), Chat: Chat{ID: -1001, Type: "supergroup"},
+		From: &User{ID: 42, FirstName: "測試", Username: "example_user"}, Text: "測試訊息",
+	}}
+	got, ok := update.DomainMessage()
+	if !ok || got.UserID != update.Message.From.ID || got.Username != update.Message.From.Username || got.FirstName != update.Message.From.FirstName || !got.ReceivedAt.Equal(sentAt) {
+		t.Fatalf("DomainMessage()=%+v ok=%v", got, ok)
+	}
+}
 
 func TestDomainMessageExtractsReferenceText(t *testing.T) {
 	t.Parallel()
