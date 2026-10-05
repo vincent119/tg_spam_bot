@@ -24,22 +24,25 @@ type processedUpdate struct {
 	CompletedAt *time.Time `gorm:"comment:完成處理 UTC 時間"`
 }
 type detectionEvent struct {
-	EventID            string    `gorm:"primaryKey;comment:事件唯一識別碼"`
-	UpdateID           int64     `gorm:"uniqueIndex;not null;comment:Telegram 更新識別碼"`
-	ChatID             int64     `gorm:"index;not null;comment:Telegram 聊天識別碼"`
-	MessageID          int64     `gorm:"not null;comment:Telegram 訊息識別碼"`
-	UserID             int64     `gorm:"index;not null;comment:Telegram 成員識別碼"`
-	ContentFingerprint string    `gorm:"not null;comment:有金鑰的內容指紋"`
-	CategoryID         string    `gorm:"comment:命中的違規類型"`
-	Severity           string    `gorm:"comment:違規嚴重度"`
-	RuleVersion        string    `gorm:"comment:規則快照版本"`
-	Mode               string    `gorm:"comment:執行模式"`
-	Score              int       `gorm:"comment:偵測總分"`
-	Threshold          int       `gorm:"comment:判定門檻"`
-	IsSpam             bool      `gorm:"comment:是否判定為垃圾訊息"`
-	Matches            []byte    `gorm:"type:jsonb;comment:命中規則摘要"`
-	Signals            []byte    `gorm:"type:jsonb;comment:命中行為訊號摘要"`
-	CreatedAt          time.Time `gorm:"index;not null;comment:事件 UTC 時間"`
+	EventID            string     `gorm:"primaryKey;comment:事件唯一識別碼"`
+	UpdateID           int64      `gorm:"uniqueIndex;not null;comment:Telegram 更新識別碼"`
+	ChatID             int64      `gorm:"index;not null;comment:Telegram 聊天識別碼"`
+	MessageID          int64      `gorm:"not null;comment:Telegram 訊息識別碼"`
+	UserID             int64      `gorm:"index;not null;comment:Telegram 成員識別碼"`
+	Username           *string    `gorm:"comment:Telegram 發送當時 username 快照"`
+	FirstName          *string    `gorm:"comment:Telegram 發送當時 first_name 快照"`
+	MessageSentAt      *time.Time `gorm:"comment:Telegram 原始訊息發送 UTC 時間"`
+	ContentFingerprint string     `gorm:"not null;comment:有金鑰的內容指紋"`
+	CategoryID         string     `gorm:"comment:命中的違規類型"`
+	Severity           string     `gorm:"comment:違規嚴重度"`
+	RuleVersion        string     `gorm:"comment:規則快照版本"`
+	Mode               string     `gorm:"comment:執行模式"`
+	Score              int        `gorm:"comment:偵測總分"`
+	Threshold          int        `gorm:"comment:判定門檻"`
+	IsSpam             bool       `gorm:"comment:是否判定為垃圾訊息"`
+	Matches            []byte     `gorm:"type:jsonb;comment:命中規則摘要"`
+	Signals            []byte     `gorm:"type:jsonb;comment:命中行為訊號摘要"`
+	CreatedAt          time.Time  `gorm:"index;not null;comment:事件 UTC 時間"`
 }
 type violation struct {
 	ID                 uint64     `gorm:"primaryKey;comment:違規流水號"`
@@ -454,5 +457,16 @@ func (s *Store) CompleteAction(ctx context.Context, key string, result applicati
 func toEvent(e application.Event) *detectionEvent {
 	matches, _ := json.Marshal(e.Result.MatchesCopy())
 	signals, _ := json.Marshal(e.Result.SignalsCopy())
-	return &detectionEvent{EventID: e.ID, UpdateID: e.Message.UpdateID, ChatID: e.Message.ChatID, MessageID: e.Message.MessageID, UserID: e.Message.UserID, ContentFingerprint: e.Fingerprint, CategoryID: e.Result.CategoryID, Severity: string(e.Result.Severity), Score: e.Result.Score, Threshold: e.Result.Threshold, RuleVersion: e.Result.RuleVersion, Mode: string(e.Mode), IsSpam: e.Result.Spam, Matches: matches, Signals: signals, CreatedAt: e.CreatedAt}
+	row := &detectionEvent{EventID: e.ID, UpdateID: e.Message.UpdateID, ChatID: e.Message.ChatID, MessageID: e.Message.MessageID, UserID: e.Message.UserID, ContentFingerprint: e.Fingerprint, CategoryID: e.Result.CategoryID, Severity: string(e.Result.Severity), Score: e.Result.Score, Threshold: e.Result.Threshold, RuleVersion: e.Result.RuleVersion, Mode: string(e.Mode), IsSpam: e.Result.Spam, Matches: matches, Signals: signals, CreatedAt: e.CreatedAt}
+	if e.Message.Username != "" {
+		row.Username = &e.Message.Username
+	}
+	if e.Message.FirstName != "" {
+		row.FirstName = &e.Message.FirstName
+	}
+	if !e.Message.ReceivedAt.IsZero() && e.Message.ReceivedAt.Unix() > 0 {
+		sentAt := e.Message.ReceivedAt.UTC()
+		row.MessageSentAt = &sentAt
+	}
+	return row
 }
