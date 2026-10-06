@@ -19,6 +19,7 @@ var credentialURLPattern = regexp.MustCompile(`(?i)(https?://)[^\s/@:]+:[^\s/@]+
 // APIError 是已遮蔽敏感資料的 Telegram 穩定錯誤分類。
 type APIError struct {
 	method      string
+	status      int
 	code        int
 	description string
 	retryable   bool
@@ -76,7 +77,14 @@ func NewClient(baseURL, token string, client *http.Client) (*Client, error) {
 
 // DeleteMessage 刪除已判定為垃圾訊息的群組訊息。
 func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
-	return c.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID})
+	err := c.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID})
+	var apiErr *APIError
+	// 重送時訊息可能已由 Bot 或管理員刪除；僅將此明確回應視為刪除已完成。
+	if errors.As(err, &apiErr) && apiErr.status == http.StatusBadRequest && apiErr.code == http.StatusBadRequest &&
+		strings.EqualFold(strings.TrimSpace(apiErr.description), "Bad Request: message to delete not found") {
+		return nil
+	}
+	return err
 }
 
 // DeleteMessages 批次刪除同一群組內的一至一百則訊息。
@@ -236,7 +244,7 @@ func (c *Client) callResult(ctx context.Context, method string, payload, target 
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.OK {
 		kind, retryable := classifyAPIError(resp.StatusCode, result.ErrorCode)
-		return &APIError{method: method, code: result.ErrorCode, description: c.mask(result.Description), retryable: retryable, kind: kind}
+		return &APIError{method: method, status: resp.StatusCode, code: result.ErrorCode, description: c.mask(result.Description), retryable: retryable, kind: kind}
 	}
 	if target != nil {
 		if err := json.Unmarshal(result.Result, target); err != nil {

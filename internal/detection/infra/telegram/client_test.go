@@ -35,6 +35,53 @@ func TestClientDeleteMessage(t *testing.T) {
 	}
 }
 
+func TestClientDeleteMessageAlreadyMissing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		status      int
+		code        int
+		description string
+		batch       bool
+		wantSuccess bool
+	}{
+		{name: "單筆訊息已不存在", status: http.StatusBadRequest, description: "Bad Request: message to delete not found", wantSuccess: true},
+		{name: "其他刪除錯誤", status: http.StatusBadRequest, description: "Bad Request: message can't be deleted"},
+		{name: "權限錯誤不可忽略", status: http.StatusForbidden, description: "Bad Request: message to delete not found"},
+		{name: "伺服器錯誤不可忽略", status: http.StatusInternalServerError, description: "Bad Request: message to delete not found"},
+		{name: "伺服器狀態不可偽裝成訊息不存在", status: http.StatusInternalServerError, code: http.StatusBadRequest, description: "Bad Request: message to delete not found"},
+		{name: "成功狀態不可偽裝成訊息不存在", status: http.StatusOK, code: http.StatusBadRequest, description: "Bad Request: message to delete not found"},
+		{name: "批次刪除不可套用單筆規則", status: http.StatusBadRequest, description: "Bad Request: message to delete not found", batch: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			code := tt.code
+			if code == 0 {
+				code = tt.status
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":%d,"description":%q}`, code, tt.description)
+			}))
+			t.Cleanup(server.Close)
+			client, err := NewClient(server.URL, "token", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.batch {
+				err = client.DeleteMessages(t.Context(), 1, []int64{2})
+			} else {
+				err = client.DeleteMessage(t.Context(), 1, 2)
+			}
+			if (err == nil) != tt.wantSuccess {
+				t.Fatalf("刪除錯誤 = %v，預期成功 = %v", err, tt.wantSuccess)
+			}
+		})
+	}
+}
+
 func TestClientDeleteMessages(t *testing.T) {
 	t.Parallel()
 	var path, body string
