@@ -30,8 +30,8 @@ func TestChineseModerationRegressionCorpus(t *testing.T) {
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
 	}
-	if len(cases) != 10 {
-		t.Fatalf("中文案例數量=%d，預期六則廣告加四則正常文案", len(cases))
+	if len(cases) != 12 {
+		t.Fatalf("中文案例數量=%d，預期八則廣告加四則正常文案", len(cases))
 	}
 	ruleSet, err := LoadDir(filepath.Join("..", "..", "..", "configs", "rules"))
 	if err != nil {

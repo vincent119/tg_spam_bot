@@ -245,8 +245,15 @@ func TestManualFeedbackActionAndAuditTargetIntegration(t *testing.T) {
 	if claim, err := store.ClaimCommand(ctx, command); err != nil || !claim.Acquired {
 		t.Fatalf("ClaimCommand=%+v err=%v", claim, err)
 	}
-	if err := store.PlanFeedbackActions(ctx, command, []commandapp.FeedbackActionKind{commandapp.FeedbackActionDelete, commandapp.FeedbackActionBan}); err != nil {
+	kinds := []commandapp.FeedbackActionKind{commandapp.FeedbackActionDelete, commandapp.FeedbackActionBan}
+	if err := store.PlanFeedbackActions(ctx, command, kinds, 12, 10); err != nil {
 		t.Fatal(err)
+	}
+	if err := store.PlanFeedbackActions(ctx, command, kinds, 10, 12); err != nil {
+		t.Fatalf("相同計畫再次保存：%v", err)
+	}
+	if err := store.PlanFeedbackActions(ctx, command, kinds, 12, 10, 14); err == nil {
+		t.Fatal("不得擴大已保存的目標")
 	}
 	if err := store.CompleteFeedbackAction(ctx, command, commandapp.FeedbackActionDelete, true, false, ""); err != nil {
 		t.Fatal(err)
@@ -254,15 +261,18 @@ func TestManualFeedbackActionAndAuditTargetIntegration(t *testing.T) {
 	if err := store.CompleteFeedbackAction(ctx, command, commandapp.FeedbackActionBan, false, true, "rate_limited"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.CompleteFeedbackAction(ctx, command, commandapp.FeedbackActionDelete, false, false, "telegram_rejected", 10); err != nil {
+		t.Fatal(err)
+	}
 	var actions []manualFeedbackAction
-	if err := db.Where("chat_id=?", chatID).Order("kind ASC").Find(&actions).Error; err != nil || len(actions) != 2 {
+	if err := db.Where("chat_id=?", chatID).Order("kind ASC").Find(&actions).Error; err != nil || len(actions) != 3 {
 		t.Fatalf("actions=%+v err=%v", actions, err)
 	}
 	statuses := map[string]string{}
 	for _, action := range actions {
 		statuses[action.Kind] = action.Status
 	}
-	if statuses["delete"] != "completed" || statuses["ban"] != "failed" {
+	if statuses["delete"] != "completed" || statuses["delete:10"] != "failed" || statuses["ban"] != "failed" {
 		t.Fatalf("部分失敗紀錄錯誤：%+v", actions)
 	}
 }

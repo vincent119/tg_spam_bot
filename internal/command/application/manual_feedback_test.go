@@ -49,16 +49,20 @@ type feedbackActionSpy struct {
 	planErr     error
 	completeErr error
 	planned     int
+	messageIDs  []int64
+	deleteIDs   []int64
 }
 
-func (s *feedbackActionSpy) PlanFeedbackActions(_ context.Context, _ domain.Command, kinds []FeedbackActionKind) error {
+func (s *feedbackActionSpy) PlanFeedbackActions(_ context.Context, _ domain.Command, kinds []FeedbackActionKind, messageIDs ...int64) error {
 	s.planned++
 	s.kinds = append([]FeedbackActionKind(nil), kinds...)
+	s.messageIDs = append([]int64(nil), messageIDs...)
 	return s.planErr
 }
 
-func (s *feedbackActionSpy) CompleteFeedbackAction(_ context.Context, _ domain.Command, kind FeedbackActionKind, _, _ bool, _ string) error {
+func (s *feedbackActionSpy) CompleteFeedbackAction(_ context.Context, _ domain.Command, kind FeedbackActionKind, _, _ bool, _ string, messageID ...int64) error {
 	s.completed = append(s.completed, kind)
+	s.deleteIDs = append(s.deleteIDs, messageID...)
 	return s.completeErr
 }
 

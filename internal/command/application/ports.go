@@ -80,10 +80,11 @@ const (
 	FeedbackActionBan FeedbackActionKind = "ban"
 )
 
-// FeedbackActionStore 在呼叫 Telegram 前保存動作意圖，並逐項記錄結果。
+// FeedbackActionStore 在呼叫 Telegram 前保存固定目標，並逐項記錄結果。
+// 可選訊息 ID 用於同群同人的重複清除；省略時維持原回覆目標。
 type FeedbackActionStore interface {
-	PlanFeedbackActions(ctx context.Context, command domain.Command, kinds []FeedbackActionKind) error
-	CompleteFeedbackAction(ctx context.Context, command domain.Command, kind FeedbackActionKind, succeeded, retryable bool, errorCode string) error
+	PlanFeedbackActions(ctx context.Context, command domain.Command, kinds []FeedbackActionKind, messageIDs ...int64) error
+	CompleteFeedbackAction(ctx context.Context, command domain.Command, kind FeedbackActionKind, succeeded, retryable bool, errorCode string, messageID ...int64) error
 }
 
 // DetectionPreviewer 不提供任何正式寫入與處置能力。

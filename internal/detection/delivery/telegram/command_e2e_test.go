@@ -163,12 +163,12 @@ func (commandFeedbackTargetRecorder) FindFeedbackTarget(context.Context, int64, 
 
 type commandFeedbackActionRecorder struct{ plans int }
 
-func (r *commandFeedbackActionRecorder) PlanFeedbackActions(context.Context, commanddomain.Command, []commandapp.FeedbackActionKind) error {
+func (r *commandFeedbackActionRecorder) PlanFeedbackActions(context.Context, commanddomain.Command, []commandapp.FeedbackActionKind, ...int64) error {
 	r.plans++
 	return nil
 }
 
-func (*commandFeedbackActionRecorder) CompleteFeedbackAction(context.Context, commanddomain.Command, commandapp.FeedbackActionKind, bool, bool, string) error {
+func (*commandFeedbackActionRecorder) CompleteFeedbackAction(context.Context, commanddomain.Command, commandapp.FeedbackActionKind, bool, bool, string, ...int64) error {
 	return nil
 }
 

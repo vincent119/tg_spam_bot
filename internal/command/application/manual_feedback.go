@@ -76,15 +76,30 @@ func (h *Handler) handleManualFeedback(ctx context.Context, command domain.Comma
 	if err := h.protectTarget(ctx, command); err != nil {
 		return h.finishWithReply(ctx, command, "partial", strings.Join(parts, "；")+"；目標權限已變更，未執行處置。", string(domain.ErrorProtected))
 	}
+	messageIDs, err := h.spamDeleteTargets(ctx, command, now)
+	if err != nil {
+		return h.finishWithReply(ctx, command, "partial", strings.Join(parts, "；")+"；查詢重複訊息失敗，未執行處置。", string(domain.ErrorTemporary))
+	}
 	kinds := []FeedbackActionKind{FeedbackActionDelete}
 	if spamArgs.Action == domain.SpamActionBan {
 		kinds = append(kinds, FeedbackActionBan)
 	}
-	if err := h.feedbackActions.PlanFeedbackActions(ctx, command, kinds); err != nil {
+	if err := h.feedbackActions.PlanFeedbackActions(ctx, command, kinds, messageIDs...); err != nil {
 		return h.finishWithReply(ctx, command, "partial", strings.Join(parts, "；")+"；處置計畫未保存，未呼叫 Telegram。", string(domain.ErrorTemporary))
 	}
 	status := "completed"
 	for _, kind := range kinds {
+		if kind == FeedbackActionDelete {
+			message, partial, uncertain := h.executeFeedbackDeletes(ctx, command, messageIDs)
+			parts = append(parts, message)
+			if partial {
+				status = "partial"
+			}
+			if uncertain {
+				break
+			}
+			continue
+		}
 		message, uncertain := h.executeFeedbackAction(ctx, command, kind)
 		parts = append(parts, message)
 		if uncertain {
@@ -96,6 +111,54 @@ func (h *Handler) handleManualFeedback(ctx context.Context, command domain.Comma
 		}
 	}
 	return h.finishWithReply(ctx, command, status, strings.Join(parts, "；")+"。", "")
+}
+
+func (h *Handler) spamDeleteTargets(ctx context.Context, command domain.Command, now time.Time) ([]int64, error) {
+	messageIDs := []int64{command.TargetMessage}
+	if h.duplicates == nil {
+		return messageIDs, nil
+	}
+	duplicates, err := h.duplicates.FindDuplicateMessageIDs(ctx, command.ChatID, command.Target.ID, command.TargetMessage, now.Add(-48*time.Hour), 100)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int64]struct{}{command.TargetMessage: {}}
+	for _, id := range duplicates {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if len(messageIDs) == 100 {
+			break
+		}
+		seen[id] = struct{}{}
+		messageIDs = append(messageIDs, id)
+	}
+	return messageIDs, nil
+}
+
+func (h *Handler) executeFeedbackDeletes(ctx context.Context, command domain.Command, messageIDs []int64) (string, bool, bool) {
+	completed, failed := 0, 0
+	for _, id := range messageIDs {
+		message, uncertain := h.executeFeedbackAction(ctx, command, FeedbackActionDelete, id)
+		if uncertain {
+			return fmt.Sprintf("已確認清除 %d 則，失敗 %d 則；%s，剩餘處置已停止", completed, failed, message), true, true
+		}
+		if strings.Contains(message, "失敗") {
+			failed++
+		} else {
+			completed++
+		}
+		if len(messageIDs) == 1 {
+			return message, failed > 0, false
+		}
+	}
+	if failed > 0 {
+		return fmt.Sprintf("已清除 %d 則相同訊息，%d 則刪除失敗", completed, failed), true, false
+	}
+	return fmt.Sprintf("已清除 %d 則相同訊息", completed), false, false
 }
 
 func feedbackEmbeddingReply(result detectionapp.ManualFeedbackResult) string {
@@ -115,7 +178,7 @@ func feedbackEmbeddingReply(result detectionapp.ManualFeedbackResult) string {
 	}
 }
 
-func (h *Handler) executeFeedbackAction(ctx context.Context, command domain.Command, kind FeedbackActionKind) (string, bool) {
+func (h *Handler) executeFeedbackAction(ctx context.Context, command domain.Command, kind FeedbackActionKind, messageIDs ...int64) (string, bool) {
 	if kind == FeedbackActionBan {
 		if err := h.protectTarget(ctx, command); err != nil {
 			if saveErr := h.feedbackActions.CompleteFeedbackAction(ctx, command, kind, false, false, string(domain.ErrorProtected)); saveErr != nil {
@@ -127,7 +190,11 @@ func (h *Handler) executeFeedbackAction(ctx context.Context, command domain.Comm
 	var actionErr error
 	switch kind {
 	case FeedbackActionDelete:
-		actionErr = h.telegram.DeleteMessage(ctx, command.ChatID, command.TargetMessage)
+		messageID := command.TargetMessage
+		if len(messageIDs) > 0 {
+			messageID = messageIDs[0]
+		}
+		actionErr = h.telegram.DeleteMessage(ctx, command.ChatID, messageID)
 	case FeedbackActionBan:
 		actionErr = h.telegram.BanMember(ctx, command.ChatID, command.Target.ID)
 	default:
@@ -137,7 +204,7 @@ func (h *Handler) executeFeedbackAction(ctx context.Context, command domain.Comm
 	if actionErr != nil {
 		code, retryable = classifyError(actionErr)
 	}
-	if err := h.feedbackActions.CompleteFeedbackAction(ctx, command, kind, actionErr == nil, retryable, code); err != nil {
+	if err := h.feedbackActions.CompleteFeedbackAction(ctx, command, kind, actionErr == nil, retryable, code, messageIDs...); err != nil {
 		return fmt.Sprintf("%s 結果未確認", kind), true
 	}
 	if actionErr != nil {
