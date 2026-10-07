@@ -17,6 +17,8 @@ type telegramSpy struct {
 	adminErr        error
 	messages        []string
 	deleted         int64
+	deleteCalls     []int64
+	deleteErrors    map[int64]error
 	deletedMessages []int64
 	restricted      int64
 	restrictedUntil time.Time
@@ -38,10 +40,11 @@ func (s *telegramSpy) SendMessage(_ context.Context, _ int64, _ int64, text stri
 
 func (s *telegramSpy) DeleteMessage(_ context.Context, _ int64, messageID int64) error {
 	s.deleted = messageID
+	s.deleteCalls = append(s.deleteCalls, messageID)
 	if s.onDelete != nil {
 		s.onDelete()
 	}
-	return nil
+	return s.deleteErrors[messageID]
 }
 
 func (s *telegramSpy) DeleteMessages(_ context.Context, _ int64, messageIDs []int64) error {

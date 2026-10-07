@@ -63,7 +63,7 @@ func WithManualFeedback(submitter ManualFeedbackSubmitter, targets FeedbackTarge
 	}
 }
 
-// WithDuplicateMessageFinder 啟用 `/purge`，只允許清除同一成員發送的相同內容。
+// WithDuplicateMessageFinder 讓 `/purge` 與 `/spam` 只清除同一成員發送的相同內容。
 func WithDuplicateMessageFinder(finder DuplicateMessageFinder) Option {
 	return func(handler *Handler) error {
 		if finder == nil {
