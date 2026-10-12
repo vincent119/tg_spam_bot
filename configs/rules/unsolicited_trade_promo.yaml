@@ -1,0 +1,13 @@
+version: "2026-10-12.1"
+categories:
+  - id: unsolicited_trade_promo
+    name: 未經邀請的交易廣告
+    severity: normal
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    # 保留普通面交討論，須同時出現交易話術才達標。
+    terms: [一手交錢一手交貨, 主打靠譜]
+    aliases: []
+    require_any: []
