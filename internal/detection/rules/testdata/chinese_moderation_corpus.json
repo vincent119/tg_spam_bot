@@ -10,5 +10,18 @@
   {"name":"煮飯洗米","text":"請幫我洗米煮飯","spam":false},
   {"name":"正常收款","text":"請掃描付款碼完成收款","spam":false},
   {"name":"新聞引用黑話","text":"新聞提醒大家留意詐騙文案","reference_text":"洗米 @contact","spam":false,"forbid_signal":"telegram_mention"},
-  {"name":"正常重複短句","text":"收到","spam":false}
+  {"name":"正常重複短句","text":"收到","spam":false},
+  {"name":"ATM取手點位","text":"来ATM取手/全国可干/我们供卡/可无押/点位百分之五十 @contact","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"收款碼招攬","text":"有收款码来干 帮我收赚1W","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"海外招聘引用","text":"@contact","reference_text":"维斯集团直招1390 U红包 泰国 斯里兰卡 迪拜【3国联动招聘】 底薪1670U+高提成 综合薪资20K-30K 纯中文办公 小白新人可培训入职","spam":true,"category":"high_risk_recruitment","action":"progressive"},
+  {"name":"學生下海招攬","text":"桐城学生兼职 | 00后新下海 | 自带科室 @contact 双向 @contact_bot","spam":true,"category":"adult_service_promo","action":"progressive"},
+  {"name":"客服招聘","text":"招B/C线上客服 | 零成本 | 日结75U | 想做就来了觧 @contact","spam":true,"category":"high_risk_recruitment","action":"progressive"},
+  {"name":"賭資代收","text":"帮收赌资 赚3千","spam":true,"category":"money_laundering_recruitment","action":"progressive"},
+  {"name":"面交交易廣告","text":"面交一手交钱一手交货主打靠谱 @contact","spam":true,"category":"unsolicited_trade_promo","action":"progressive"},
+  {"name":"ATM一般操作","text":"ATM提款後請記得取回卡片","spam":false},
+  {"name":"普通收款碼","text":"店家有收款碼嗎？","spam":false},
+  {"name":"普通面交","text":"二手書面交一手交錢一手交貨 @buyer","spam":false},
+  {"name":"普通學生兼職","text":"學生兼職可以向學校就業中心詢問","spam":false},
+  {"name":"普通客服招聘討論","text":"公司招聘客服人員的面試流程是什麼？","spam":false},
+  {"name":"國家旅遊討論","text":"泰國、斯里蘭卡與迪拜旅行需要哪些準備？","spam":false}
 ]

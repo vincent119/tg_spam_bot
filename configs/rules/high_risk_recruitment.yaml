@@ -1,0 +1,13 @@
+version: "2026-10-12.1"
+categories:
+  - id: high_risk_recruitment
+    name: 海外與客服招攬廣告
+    severity: high
+    action: progressive
+    threshold: 60
+    weight: 40
+    enabled: true
+    # 使用具體招攬詞組，避免一般客服問題或國家名稱觸發處置。
+    terms: [招b/c線上客服, 3國聯動招聘, 小白新人可培訓入職]
+    aliases: []
+    require_any: [telegram_mention, telegram_invite]

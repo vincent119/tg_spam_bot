@@ -1,4 +1,4 @@
-version: "2026-09-30.1"
+version: "2026-10-12.1"
 rules:
   - id: download_page
     enabled: true
@@ -27,10 +27,3 @@ rules:
       - official page
       - official website
     reply: "官方网站在：https://www.liyuvpn.com"
-  - id: support
-    enabled: true
-    keywords:
-      - 客服
-      - 聯絡客服
-      - 联系客服
-    reply: "客服信息：https://www.liyuvpn.com"

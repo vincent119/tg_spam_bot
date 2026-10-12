@@ -3,11 +3,46 @@ package application
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	autoreplydomain "github.com/vincent119/tg_spam_bot/internal/autoreply/domain"
+	autoreplyrules "github.com/vincent119/tg_spam_bot/internal/autoreply/rules"
 	detectiondomain "github.com/vincent119/tg_spam_bot/internal/detection/domain"
 )
+
+func TestMatcherOfficialLinksOnly(t *testing.T) {
+	t.Parallel()
+	rules, err := autoreplyrules.LoadFile(filepath.Join("..", "..", "..", "configs", "auto_replies.sample.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	matcher := NewMatcher(rules, detectiondomain.NewNormalizer(detectiondomain.OpenCCConverter{}, 8192))
+	tests := []struct {
+		text string
+		want string
+	}{
+		{text: "招B/C线上客服 | 零成本 | 日结75U | 想做就来了觧 @contact"},
+		{text: "招Ｂ／Ｃ線上客服 零成本 日結75U @contact"},
+		{text: "招聘客服 日结 @contact"},
+		{text: "客服兼職 私訊 @contact"},
+		{text: "客服"},
+		{text: "請問如何聯絡客服？"},
+		{text: "联系客服帮忙处理连线问题"},
+		{text: "官網在哪？", want: "official_page"},
+		{text: "官方网站地址", want: "official_page"},
+		{text: "下载链接", want: "download_page"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.text, func(t *testing.T) {
+			t.Parallel()
+			got, ok := matcher.Match(detectiondomain.Message{Text: tt.text})
+			if ok != (tt.want != "") || got.RuleID != tt.want {
+				t.Fatalf("回覆=%+v 命中=%v 預期=%s", got, ok, tt.want)
+			}
+		})
+	}
+}
 
 func TestMatcherMatch(t *testing.T) {
 	t.Parallel()
