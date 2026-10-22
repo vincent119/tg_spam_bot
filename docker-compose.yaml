@@ -32,7 +32,7 @@ services:
     networks: [backend]
 
   migrate:
-    image: vincent119/tg_spam_bot:${APP_TAG:-latest}
+    image: quay.io/vincent119/tg_spam_bot:${APP_TAG:-latest}
     entrypoint: ["/app/tg-spam-migrate"]
     # 既有資料庫須先明示接管；後續部署由 Compose 自動執行 migration。
     command: ["up"]
