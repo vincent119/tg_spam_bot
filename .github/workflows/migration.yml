@@ -2,8 +2,6 @@ name: 版本化資料庫遷移驗證
 
 on:
   pull_request:
-  push:
-    branches: [main]
 
 jobs:
   migration:
