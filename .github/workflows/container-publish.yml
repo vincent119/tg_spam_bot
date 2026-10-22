@@ -2,7 +2,8 @@ name: 建置並發佈 Quay 映像
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -25,5 +26,6 @@ jobs:
           context: .
           push: true
           tags: |
+            quay.io/vincent119/tg_spam_bot:${{ github.ref_name }}
             quay.io/vincent119/tg_spam_bot:${{ github.sha }}
             quay.io/vincent119/tg_spam_bot:latest
