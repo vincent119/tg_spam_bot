@@ -33,7 +33,7 @@ HTTP 路由使用 Gin，PostgreSQL 結構由部署前版本化 runner 管理，B
 
 ## 系統需求
 
-- Go 1.25 以上版本，僅直接執行程式時需要。
+- Go 1.27.3 以上版本，僅直接執行程式時需要。
 - PostgreSQL 16 至 18；正式環境版本仍須以備份還原演練確認。
 - Redis 8，其他相容版本需自行驗證。
 - 可供 Telegram 連入的公開 HTTPS 網址。
@@ -746,18 +746,20 @@ CONFIG_FILE=/path/to/config.yaml make run
 
 ## Docker 映像
 
-預設映像為 `docker.io/vincent119/tg_spam_bot:latest`：
+推送至 `main` 時，GitHub Actions 會建置並發佈 `quay.io/vincent119/tg_spam_bot`，每次發佈會產生對應 Git SHA 標籤並更新 `latest`。Pull request 僅執行映像建置驗證，不會登入或推送至 Quay。
+
+本機手動建置與推送時，使用下列命令指定 Quay 映像：
 
 ```sh
-make docker-login
-make docker-build
-make docker-push
+DOCKER_REGISTRY=quay.io DOCKER_USERNAME=vincent119 make docker-login
+DOCKER_REGISTRY=quay.io DOCKER_USERNAME=vincent119 make docker-build
+DOCKER_REGISTRY=quay.io DOCKER_USERNAME=vincent119 make docker-push
 ```
 
 指定版本並建置、推送：
 
 ```sh
-DOCKER_TAG=v1.0.0 make docker-publish
+DOCKER_REGISTRY=quay.io DOCKER_USERNAME=vincent119 DOCKER_TAG=v1.0.0 make docker-publish
 ```
 
 Docker 登入採互動方式，密碼不得放入 Makefile、命令列、Git 或 CI 明文變數。

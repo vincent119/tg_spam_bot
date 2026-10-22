@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.27.3-alpine3.24 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOMAXPROCS=1 GOMEMLIMIT=1200MiB go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-bot ./cmd/tg-spam-bot
 RUN CGO_ENABLED=0 GOMAXPROCS=1 GOMEMLIMIT=1200MiB go build -tags=nomsgpack -p=1 -trimpath -ldflags="-s -w" -o /out/tg-spam-migrate ./cmd/tg-spam-migrate
 
-FROM alpine:3.22
+FROM alpine:3.24.2
 ARG TIMEZONE=Asia/Taipei
 ENV TZ=${TIMEZONE}
 # Go 的 time.LoadLocation 依賴 IANA 時區資料，runtime image 必須保留 tzdata 才能載入設定的時區。
