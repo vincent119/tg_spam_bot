@@ -746,7 +746,7 @@ CONFIG_FILE=/path/to/config.yaml make run
 
 ## Docker 映像
 
-推送至 `main` 時，GitHub Actions 會建置並發佈 `quay.io/vincent119/tg_spam_bot`，每次發佈會產生對應 Git SHA 標籤並更新 `latest`。Pull request 僅執行映像建置驗證，不會登入或推送至 Quay。
+推送至 `main` 時，GitHub Actions 會建置並發佈 `quay.io/vincent119/tg_spam_bot`，每次發佈會產生對應 Git SHA 標籤並更新 `latest`。Pull request 的映像封裝驗證由既有 migration workflow 執行；Quay 發佈 workflow 不會在 Pull request 執行。
 
 本機手動建置與推送時，使用下列命令指定 Quay 映像：
 
