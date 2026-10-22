@@ -56,3 +56,7 @@ docker-push:
 
 # docker-publish 依序建置及推送映像，登入需先獨立完成。
 docker-publish: docker-build docker-push
+
+# vulncheck 使用 golang.org/x/vuln/cmd/govulncheck 檢查依賴漏洞。
+vulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
