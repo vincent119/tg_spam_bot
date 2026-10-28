@@ -197,6 +197,20 @@ func (s *Store) FindDuplicateMessageIDs(ctx context.Context, chatID, userID, tar
 	return messageIDs, nil
 }
 
+// PendingActions 讀取事件中尚未完成且允許重試的固定處置。
+func (s *Store) PendingActions(ctx context.Context, eventID string) ([]application.EnforcementAction, error) {
+	var rows []enforcementAction
+	if err := s.db.WithContext(ctx).Where("event_id=? AND (status=? OR (status=? AND retryable))", eventID, "pending", "failed").
+		Order("CASE kind WHEN 'delete' THEN 0 WHEN 'warn' THEN 1 WHEN 'mute_10m' THEN 2 WHEN 'mute_24h' THEN 3 WHEN 'ban' THEN 4 ELSE 5 END").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	actions := make([]application.EnforcementAction, 0, len(rows))
+	for _, row := range rows {
+		actions = append(actions, application.EnforcementAction{Key: row.ActionKey, Kind: application.ActionKind(row.Kind)})
+	}
+	return actions, nil
+}
+
 // Create 在單一 transaction 內建立違規並計算 30 天處置階梯。
 func (s *Store) Create(ctx context.Context, event application.Event) (count int, actions []application.EnforcementAction, err error) {
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -228,7 +242,7 @@ func (s *Store) Create(ctx context.Context, event application.Event) (count int,
 			}
 			count = int(count64)
 		}
-		for _, kind := range application.PlanActions(event.Result, event.Mode, count) {
+		for _, kind := range application.PlanEventActions(event, count) {
 			a := application.EnforcementAction{Key: event.ID + ":" + string(kind), Kind: kind}
 			row := enforcementAction{ActionKey: a.Key, EventID: event.ID, Kind: string(kind), Status: "pending"}
 			if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; e != nil {
