@@ -1,0 +1,13 @@
+version: "2026-10-28.1"
+categories:
+  - id: tron_service_promo
+    name: TRON 服務招攬廣告
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    # 使用服務招攬詞組並要求聯絡訊號，避免一般鏈上技術討論觸發封鎖。
+    terms: [能量閃租, 能量租賃, trx兌換, trx 兌換, tron地址服務, tron 地址服務]
+    aliases: [能量闪租, 能量租赁, trx兑换, trx 兑换, tron地址服务, tron 地址服务]
+    require_any: [telegram_mention, telegram_invite]
