@@ -1,0 +1,13 @@
+version: "2026-10-28.1"
+categories:
+  - id: electronics_resale_promo
+    name: 國行手機招攬廣告
+    severity: critical
+    action: ban
+    threshold: 80
+    weight: 70
+    enabled: true
+    # 限定完整商品促銷詞組，單獨提到手機品牌或型號不構成違規。
+    terms: [全新國行iphone, 全新國行 iphone, 全新國行水果手機, 全新國行蘋果手機]
+    aliases: [全新国行iphone, 全新国行 iphone, 全新国行水果手机, 全新国行苹果手机]
+    require_any: [telegram_mention, telegram_invite]
