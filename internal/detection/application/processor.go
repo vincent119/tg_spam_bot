@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -95,6 +96,17 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 		completed = true
 		return ProcessResult{Exempt: true}, p.updates.Complete(ctx, message.UpdateID)
 	}
+	eventID := fmt.Sprintf("tg:%d", message.UpdateID)
+	pending, err := p.violations.PendingActions(ctx, eventID)
+	if err != nil {
+		return ProcessResult{}, fmt.Errorf("load pending actions: %w", err)
+	}
+	if len(pending) > 0 {
+		replay := Event{ID: eventID, Message: domain.NewMessage(message)}
+		if err := p.execute(ctx, replay, pending); err != nil {
+			return ProcessResult{}, err
+		}
+	}
 	fingerprint := p.fingerprint(message.Text)
 	var signals []string
 	var repeat RepeatSnapshot
@@ -113,11 +125,12 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 	}
 	repeatPlan := PlanRepeat(repeat, p.repeatThreshold, p.repeatAction, p.mode)
 	result := p.detector.Detect(message, signals...)
+	yamlSpam := result.Spam
 	effectiveMode := p.mode
 	if p.ai != nil {
 		result, effectiveMode = p.ai.Evaluate(ctx, message, fingerprint, result, p.mode)
 	}
-	event := Event{ID: fmt.Sprintf("tg:%d", message.UpdateID), Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, Mode: effectiveMode, CreatedAt: p.now().UTC()}
+	event := Event{ID: eventID, Message: domain.NewMessage(message), Fingerprint: fingerprint, Result: result, YAMLSpam: yamlSpam, Mode: effectiveMode, CreatedAt: p.now().UTC()}
 	logDetectionResult(ctx, event)
 
 	if !result.Spam || effectiveMode == ModeObserve {
@@ -150,7 +163,17 @@ func (p *Processor) Process(ctx context.Context, message domain.Message) (Proces
 }
 
 func (p *Processor) execute(ctx context.Context, event Event, actions []EnforcementAction) error {
+	var actionErrors []error
+	hasBan := false
 	for _, action := range actions {
+		if action.Kind == ActionBan {
+			hasBan = true
+		}
+	}
+	for _, action := range actions {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(actionErrors, err)...)
+		}
 		zlogger.DebugContext(ctx, "開始執行 Telegram 處置",
 			zlogger.String("subsystem", "enforcement"),
 			zlogger.String("event_id", event.ID),
@@ -188,10 +211,13 @@ func (p *Processor) execute(ctx context.Context, event Event, actions []Enforcem
 			zlogger.Bool("retryable", result.Retryable),
 		)
 		if err != nil {
-			return fmt.Errorf("execute action %s: %w", action.Kind, err)
+			actionErrors = append(actionErrors, fmt.Errorf("execute action %s: %w", action.Kind, err))
+			if action.Kind != ActionDelete || !hasBan {
+				return errors.Join(actionErrors...)
+			}
 		}
 	}
-	return nil
+	return errors.Join(actionErrors...)
 }
 
 // logDetectionResult 只記錄判定摘要，避免將訊息原文或敏感內容寫入日誌。

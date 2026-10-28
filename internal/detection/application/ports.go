@@ -104,6 +104,7 @@ type RepeatSnapshotReader interface {
 // ViolationStore 原子保存偵測、違規及冪等處置計畫。
 type ViolationStore interface {
 	Create(ctx context.Context, event Event) (violationCount int, actions []EnforcementAction, err error)
+	PendingActions(ctx context.Context, eventID string) ([]EnforcementAction, error)
 	RecordDetection(ctx context.Context, event Event) error
 	CompleteAction(ctx context.Context, key string, result ActionResult) error
 }
@@ -122,6 +123,7 @@ type Event struct {
 	Message     domain.Message
 	Fingerprint string
 	Result      domain.Result
+	YAMLSpam    bool
 	Mode        Mode
 	CreatedAt   time.Time
 }

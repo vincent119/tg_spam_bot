@@ -2,6 +2,14 @@ package application
 
 import "github.com/vincent119/tg_spam_bot/internal/detection/domain"
 
+// PlanEventActions 將明確的 YAML 判定與其他判定來源分別處理。
+func PlanEventActions(event Event, count int) []ActionKind {
+	if event.YAMLSpam && event.Result.Spam && event.Mode == ModeEnforce {
+		return []ActionKind{ActionDelete, ActionBan}
+	}
+	return PlanActions(event.Result, event.Mode, count)
+}
+
 // PlanActions 將偵測結果及 30 天違規次數轉為可冪等執行的處置順序。
 func PlanActions(result domain.Result, mode Mode, count int) []ActionKind {
 	if !result.Spam || mode == ModeObserve {

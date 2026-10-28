@@ -183,14 +183,7 @@ func (s *PreviewService) previewActions(result PreviewResult) ([]ActionKind, boo
 	}
 	var actions []ActionKind
 	if result.Rule.Spam {
-		switch {
-		case result.Mode == ModeDeleteOnly:
-			actions = append(actions, ActionDelete)
-		case result.Rule.Severity == domain.SeverityCritical && result.Rule.Action == domain.ActionBan:
-			actions = append(actions, ActionDelete, ActionBan)
-		default:
-			return nil, false, "violation_count_unknown"
-		}
+		actions = append(actions, PlanEventActions(Event{Result: result.Rule, YAMLSpam: true, Mode: result.Mode}, 0)...)
 	}
 	if !result.Repeat.Available && result.RepeatAction != RepeatActionObserve {
 		return actions, false, "repeat_count_unknown"

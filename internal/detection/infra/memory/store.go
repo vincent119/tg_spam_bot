@@ -19,6 +19,7 @@ type Store struct {
 	events     []application.Event
 	violations map[string][]time.Time
 	actions    map[string]application.ActionResult
+	plans      map[string][]application.EnforcementAction
 	windows    map[string][]observation
 	repeats    map[int64]repeatState
 	joined     map[string]time.Time
@@ -54,6 +55,7 @@ func NewStore(window time.Duration, maxEntries int) *Store {
 	return &Store{
 		updates: make(map[int64]bool), trusted: make(map[string]string),
 		violations: make(map[string][]time.Time), actions: make(map[string]application.ActionResult),
+		plans:   make(map[string][]application.EnforcementAction),
 		windows: make(map[string][]observation), joined: make(map[string]time.Time),
 		repeats: make(map[int64]repeatState),
 		now:     time.Now, window: window, maxEntries: maxEntries,
@@ -269,16 +271,40 @@ func (s *Store) RecordDetection(_ context.Context, event application.Event) erro
 }
 
 // Create 原子建立有效違規並依次數產生冪等處置計畫。
+func (s *Store) PendingActions(_ context.Context, eventID string) ([]application.EnforcementAction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var pending []application.EnforcementAction
+	for _, action := range s.plans[eventID] {
+		result, done := s.actions[action.Key]
+		if !done || (!result.Succeeded && result.Retryable) {
+			pending = append(pending, action)
+		}
+	}
+	return pending, nil
+}
+
 func (s *Store) Create(_ context.Context, event application.Event) (int, []application.EnforcementAction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if plan, ok := s.plans[event.ID]; ok {
+		var pending []application.EnforcementAction
+		for _, action := range plan {
+			result, done := s.actions[action.Key]
+			if !done || (!result.Succeeded && result.Retryable) {
+				pending = append(pending, action)
+			}
+		}
+		return 0, pending, nil
+	}
 	s.events = append(s.events, event)
 	if event.Mode == application.ModeDeleteOnly {
-		kinds := application.PlanActions(event.Result, event.Mode, 0)
+		kinds := application.PlanEventActions(event, 0)
 		actions := make([]application.EnforcementAction, 0, len(kinds))
 		for _, kind := range kinds {
 			actions = append(actions, application.EnforcementAction{Key: event.ID + ":" + string(kind), Kind: kind})
 		}
+		s.plans[event.ID] = actions
 		return 0, actions, nil
 	}
 	violationKey := key(event.Message.ChatID, event.Message.UserID)
@@ -291,11 +317,12 @@ func (s *Store) Create(_ context.Context, event application.Event) (int, []appli
 	}
 	valid = append(valid, event.CreatedAt)
 	s.violations[violationKey] = valid
-	kinds := application.PlanActions(event.Result, event.Mode, len(valid))
+	kinds := application.PlanEventActions(event, len(valid))
 	actions := make([]application.EnforcementAction, 0, len(kinds))
 	for _, kind := range kinds {
 		actions = append(actions, application.EnforcementAction{Key: event.ID + ":" + string(kind), Kind: kind})
 	}
+	s.plans[event.ID] = actions
 	return len(valid), actions, nil
 }
 

@@ -21,6 +21,70 @@ type detectorStub struct{ result domain.Result }
 
 func (d detectorStub) Detect(domain.Message, ...string) domain.Result { return d.result }
 
+type mutableDetector struct{ result domain.Result }
+
+func (d *mutableDetector) Detect(domain.Message, ...string) domain.Result { return d.result }
+
+type failingActionStore struct{ application.ViolationStore }
+
+func (s failingActionStore) CompleteAction(context.Context, string, application.ActionResult) error {
+	return errors.New("測試用處置結果保存失敗")
+}
+
+type cancelOnDelete struct {
+	telegramSpy
+	cancel context.CancelFunc
+}
+
+func (s *cancelOnDelete) DeleteMessage(context.Context, int64, int64) error {
+	s.actions = append(s.actions, "delete")
+	s.cancel()
+	return errors.New("測試用取消")
+}
+
+func TestProcessorRetriesSavedPlanAfterRuleChanges(t *testing.T) {
+	store := memory.NewStore(time.Minute, 100)
+	tg := &telegramSpy{failOn: "delete"}
+	detector := &mutableDetector{result: domain.Result{Spam: true, Severity: domain.SeverityNormal, Action: domain.ActionProgressive}}
+	processor := application.NewProcessor(detector, store, store, store, store, tg, application.ModeEnforce, []byte("key"))
+	message := domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"}
+	if _, err := processor.Process(t.Context(), message); err == nil {
+		t.Fatal("首次刪文應失敗")
+	}
+	detector.result = domain.Result{}
+	tg.failOn = ""
+	if _, err := processor.Process(t.Context(), message); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(tg.actions, []string{"delete", "ban", "delete"}) {
+		t.Fatalf("處置=%v", tg.actions)
+	}
+}
+
+func TestProcessorStopsWhenActionResultCannotBeSaved(t *testing.T) {
+	store := memory.NewStore(time.Minute, 100)
+	tg := &telegramSpy{failOn: "delete"}
+	detector := detectorStub{domain.Result{Spam: true, Action: domain.ActionProgressive}}
+	processor := application.NewProcessor(detector, store, store, store, failingActionStore{store}, tg, application.ModeEnforce, []byte("key"))
+	_, err := processor.Process(t.Context(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"})
+	if err == nil || !slices.Equal(tg.actions, []string{"delete"}) {
+		t.Fatalf("錯誤=%v 處置=%v", err, tg.actions)
+	}
+}
+
+func TestProcessorStopsAfterContextCancellation(t *testing.T) {
+	store := memory.NewStore(time.Minute, 100)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tg := &cancelOnDelete{cancel: cancel}
+	detector := detectorStub{domain.Result{Spam: true, Action: domain.ActionProgressive}}
+	processor := application.NewProcessor(detector, store, store, store, store, tg, application.ModeEnforce, []byte("key"))
+	_, err := processor.Process(ctx, domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"})
+	if !errors.Is(err, context.Canceled) || !slices.Equal(tg.actions, []string{"delete"}) {
+		t.Fatalf("錯誤=%v 處置=%v", err, tg.actions)
+	}
+}
+
 type telegramSpy struct {
 	actions []string
 	failOn  string
@@ -69,6 +133,16 @@ func TestProcessorReturnsPartialActionFailure(t *testing.T) {
 	_, err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"})
 	if err == nil {
 		t.Fatal("expected action failure")
+	}
+	if !slices.Equal(telegram.actions, []string{"delete", "ban"}) {
+		t.Fatalf("刪文失敗仍應封鎖：%v", telegram.actions)
+	}
+	telegram.failOn = ""
+	if _, err := processor.Process(context.Background(), domain.Message{UpdateID: 1, ChatID: 2, MessageID: 3, UserID: 4, Text: "ad"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(telegram.actions, []string{"delete", "ban", "delete"}) {
+		t.Fatalf("重送只應重試刪文：%v", telegram.actions)
 	}
 }
 

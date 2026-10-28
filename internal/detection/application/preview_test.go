@@ -110,9 +110,9 @@ func TestDetectionPreviewReadOnlyAndReasons(t *testing.T) {
 			mode: ModeEnforce, repeatAction: RepeatActionBan, wantCount: 3, wantKnown: false, wantReason: "exemption_unknown", wantRepeatSig: true,
 		},
 		{
-			name: "一般違規階梯未知", snapshot: RepeatSnapshot{Available: true, Count: 1, CurrentObserved: true},
+			name: "一般規則首次封鎖", snapshot: RepeatSnapshot{Available: true, Count: 1, CurrentObserved: true},
 			rule: domain.Result{Spam: true, Action: domain.ActionProgressive, Severity: domain.SeverityHigh, Score: 80, Threshold: 60},
-			mode: ModeEnforce, repeatAction: RepeatActionObserve, wantCount: 1, wantKnown: false, wantReason: "violation_count_unknown",
+			mode: ModeEnforce, repeatAction: RepeatActionObserve, wantCount: 1, wantKnown: true, wantReason: "current_policy", wantActions: []ActionKind{ActionDelete, ActionBan},
 		},
 		{
 			name: "AI 未執行時不推定放行", snapshot: RepeatSnapshot{Available: true, Count: 1, CurrentObserved: true},

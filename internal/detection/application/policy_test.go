@@ -34,3 +34,24 @@ func TestPlanActions(t *testing.T) {
 		})
 	}
 }
+
+func TestYAMLFirstOffenseEnforcement(t *testing.T) {
+	result := domain.Result{Spam: true, Severity: domain.SeverityNormal, Action: domain.ActionProgressive}
+	for _, tt := range []struct {
+		name  string
+		event Event
+		want  []ActionKind
+	}{
+		{"規則首次封鎖", Event{Result: result, YAMLSpam: true, Mode: ModeEnforce}, []ActionKind{ActionDelete, ActionBan}},
+		{"僅刪除", Event{Result: result, YAMLSpam: true, Mode: ModeDeleteOnly}, []ActionKind{ActionDelete}},
+		{"觀察", Event{Result: result, YAMLSpam: true, Mode: ModeObserve}, nil},
+		{"非規則維持階梯", Event{Result: result, Mode: ModeEnforce}, []ActionKind{ActionDelete, ActionWarn}},
+		{"未判垃圾", Event{Result: domain.Result{}, YAMLSpam: true, Mode: ModeEnforce}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := PlanEventActions(tt.event, 1); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("actions=%v，預期=%v", got, tt.want)
+			}
+		})
+	}
+}
