@@ -57,7 +57,9 @@ func TestParseSpamArgs(t *testing.T) {
 		want  SpamArgs
 		err   bool
 	}{
-		{input: "", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionDelete}},
+		{input: "", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionBan}},
+		{input: "agent_recruiting", want: SpamArgs{Category: "agent_recruiting", Action: SpamActionBan}},
+		{input: "delete", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionDelete}},
 		{input: "ban", want: SpamArgs{Category: "uncategorized_spam", Action: SpamActionBan}},
 		{input: "agent_recruiting delete", want: SpamArgs{Category: "agent_recruiting", Action: SpamActionDelete}},
 		{input: "agent_recruiting ban", want: SpamArgs{Category: "agent_recruiting", Action: SpamActionBan}},
