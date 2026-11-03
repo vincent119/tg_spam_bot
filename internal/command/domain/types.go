@@ -165,7 +165,7 @@ func Definitions() []Definition {
 		{Name: NameBan, AdminOnly: true, RequiresReply: true, Usage: "/ban [原因]（回覆成員訊息）", Description: "封鎖成員"},
 		{Name: NameUnban, AdminOnly: true, Usage: "/unban <user_id> 或回覆訊息", Description: "解除封鎖"},
 		{Name: NameFeedSpam, AdminOnly: true, RequiresReply: true, Usage: "/feedspam [分類]（回覆漏網垃圾訊息）", Description: "提交漏網垃圾樣本"},
-		{Name: NameSpam, AdminOnly: true, RequiresReply: true, Usage: "/spam [分類] [delete|ban]（回覆垃圾訊息）", Description: "標記垃圾並清除同人相同訊息；ban 另封鎖"},
+		{Name: NameSpam, AdminOnly: true, RequiresReply: true, Usage: "/spam [分類] [delete|ban]（回覆垃圾訊息）", Description: "標記、清除並封鎖；delete 僅清除"},
 		{Name: NameHam, AdminOnly: true, Usage: "/ham [原因]（回覆訊息）或 /ham event:tg:<update_id> [原因]", Description: "標記正常並修正誤判"},
 		{Name: NameCheck, AdminOnly: true, RequiresReply: true, Usage: "/check（回覆訊息）", Description: "只讀預覽目前判定"},
 	}
@@ -193,7 +193,7 @@ func ParseSpamArgs(value string) (SpamArgs, error) {
 	if len(parts) > 2 {
 		return SpamArgs{}, invalidInput("用法：/spam [分類] [delete|ban]")
 	}
-	parsed := SpamArgs{Category: "uncategorized_spam", Action: SpamActionDelete}
+	parsed := SpamArgs{Category: "uncategorized_spam", Action: SpamActionBan}
 	if len(parts) == 0 {
 		return parsed, nil
 	}

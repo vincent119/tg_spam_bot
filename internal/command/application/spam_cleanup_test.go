@@ -52,7 +52,7 @@ func TestSpamFeedbackDuplicateCleanup(t *testing.T) {
 			finder := &spamDuplicateFinder{ids: tt.ids}
 			handler := newFeedbackHandler(t, tg, store, feedback, &feedbackTargetSpy{}, actions)
 			handler.duplicates, handler.clock = finder, fixedClock{now: now}
-			if err := handler.Handle(t.Context(), feedbackCommand(domain.NameSpam, "ban")); err != nil {
+			if err := handler.Handle(t.Context(), feedbackCommand(domain.NameSpam, "")); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(tg.deleteCalls, tt.want) || !slices.Equal(actions.messageIDs, tt.want) || !slices.Equal(actions.deleteIDs, tt.want) {
@@ -95,7 +95,7 @@ func TestSpamFeedbackDuplicateCleanupFailures(t *testing.T) {
 			actions := &feedbackActionSpy{completeErr: tt.completeErr}
 			handler := newFeedbackHandler(t, tg, store, feedback, &feedbackTargetSpy{}, actions)
 			handler.duplicates = &spamDuplicateFinder{ids: []int64{10, 14}, err: tt.lookupErr}
-			if err := handler.Handle(t.Context(), feedbackCommand(domain.NameSpam, "ban")); err != nil {
+			if err := handler.Handle(t.Context(), feedbackCommand(domain.NameSpam, "")); err != nil {
 				t.Fatal(err)
 			}
 			if feedback.calls != 1 || !slices.Equal(tg.deleteCalls, tt.wantDeletes) || tg.banned != tt.wantBan || store.completed != "partial" || !strings.Contains(store.result.Message, tt.wantReply) {

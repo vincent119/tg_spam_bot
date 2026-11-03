@@ -99,7 +99,10 @@ func TestSpamFeedbackActionsAndAuthorization(t *testing.T) {
 		wantBan    int64
 		wantStatus string
 	}{
-		{name: "預設刪文", admin: true, wantCalls: 1, wantDelete: 12, wantStatus: "completed"},
+		{name: "預設刪文並封鎖", admin: true, wantCalls: 1, wantDelete: 12, wantBan: 2, wantStatus: "completed"},
+		{name: "指定分類預設封鎖", args: "agent_recruiting", admin: true, wantCalls: 1, wantDelete: 12, wantBan: 2, wantStatus: "completed"},
+		{name: "明示僅刪文", args: "delete", admin: true, wantCalls: 1, wantDelete: 12, wantStatus: "completed"},
+		{name: "指定分類僅刪文", args: "agent_recruiting delete", admin: true, wantCalls: 1, wantDelete: 12, wantStatus: "completed"},
 		{name: "明示封鎖", args: "agent_recruiting ban", admin: true, wantCalls: 1, wantDelete: 12, wantBan: 2, wantStatus: "completed"},
 		{name: "非管理員不得標記", wantStatus: "denied"},
 		{name: "受保護帳號不得標記", admin: true, protected: true, wantStatus: "denied"},
